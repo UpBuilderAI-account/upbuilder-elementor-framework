@@ -1,0 +1,59 @@
+{
+  "name": "@upbuilder/elementor-framework",
+  "version": "2.0.0",
+  "description": "UpBuilder Elementor Framework v2 - JSX components that compile to Elementor JSON with exact CSS matching",
+  "main": "./src/index.ts",
+  "types": "./src/index.ts",
+  "exports": {
+    ".": "./src/index.ts",
+    "./lib": "./src/lib/index.ts",
+    "./widgets": "./src/widgets/index.ts",
+    "./abstraction": "./src/builder/abstraction/index.tsx",
+    "./types": "./src/types.ts",
+    "./elementor-defaults": "./elementor-defaults/index.ts",
+    "./elementor-defaults/elementor.css": "./elementor-defaults/elementor.css",
+    "./elementor-defaults/*": "./elementor-defaults/*"
+  },
+  "typesVersions": {
+    "*": {
+      "lib": ["./src/lib/index.ts"],
+      "widgets": ["./src/widgets/index.ts"],
+      "abstraction": ["./src/builder/abstraction/index.tsx"],
+      "types": ["./src/types.ts"],
+      "elementor-defaults": ["./elementor-defaults/index.ts"]
+    }
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json && node scripts/copy-elementor-assets.cjs",
+    "typecheck": "tsc --noEmit",
+    "clean": "rimraf dist"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/UpBuilderAI-account/upbuilder-elementor-framework.git"
+  },
+  "keywords": [
+    "elementor",
+    "upbuilder",
+    "wordpress",
+    "template",
+    "react",
+    "jsx",
+    "page-builder"
+  ],
+  "author": "UpBuilder",
+  "license": "MIT",
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "@types/react": "^18.0.0",
+    "@types/react-dom": "^18.0.0",
+    "react": "^18.0.0",
+    "react-dom": "^18.0.0",
+    "typescript": "^5.3.3",
+    "rimraf": "^5.0.5"
+  },
+  "peerDependencies": {
+    "react": "^18.0.0",
+    "react-dom": "^18.0.0"
+  }
+}
