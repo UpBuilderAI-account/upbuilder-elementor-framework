@@ -19,6 +19,15 @@ export interface BuildTemplateOptions {
   normalize?: boolean;
 }
 
+function elementsRequireElementorPro(elements: ElementorElement[]): boolean {
+  const proWidgets = new Set(['nav-menu', 'form', 'slides']);
+  const visit = (element: ElementorElement): boolean => {
+    if (element.elType === 'widget' && element.widgetType && proWidgets.has(element.widgetType)) return true;
+    return Array.isArray(element.elements) ? element.elements.some(visit) : false;
+  };
+  return elements.some(visit);
+}
+
 /**
  * Build an Elementor template from elements
  */
@@ -36,6 +45,7 @@ export function buildTemplate(
 
   // Normalize settings if requested
   const content = normalize ? normalizeElements(elements) : elements;
+  const requiresPro = elementsRequireElementorPro(content);
 
   return {
     version: '0.4',
@@ -44,7 +54,7 @@ export function buildTemplate(
     metadata: {
       template_type: 'single-page',
       include_in_zip: '1',
-      elementor_pro_required: null,
+      elementor_pro_required: requiresPro ? '1' : null,
       wp_page_template: 'elementor_canvas',
       ...metadata,
     },

@@ -62,6 +62,7 @@ export const ELEMENTOR_PRO_WIDGET_CSS_URLS = [
   `${ELEMENTOR_ASSET_BASE_URL}/pro/widget-price-list.min.css`,
   `${ELEMENTOR_ASSET_BASE_URL}/pro/widget-price-table.min.css`,
   `${ELEMENTOR_ASSET_BASE_URL}/pro/widget-search-form.min.css`,
+  `${ELEMENTOR_ASSET_BASE_URL}/pro/widget-slides.min.css`,
 ];
 
 export const ELEMENTOR_JS_URLS = [
@@ -74,6 +75,13 @@ export const ELEMENTOR_JS_URLS = [
   `${ELEMENTOR_ASSET_BASE_URL}/js/elements-handlers.min.js`,
   `${ELEMENTOR_ASSET_BASE_URL}/js/dialog.min.js`,
   `${ELEMENTOR_ASSET_BASE_URL}/js/e-gallery.min.js`,
+  `${ELEMENTOR_ASSET_BASE_URL}/js/toggle.2a177a3ef4785d3dfbc5.bundle.min.js`,
+  `${ELEMENTOR_ASSET_BASE_URL}/js/counter.12335f45aaa79d244f24.bundle.min.js`,
+  `${ELEMENTOR_ASSET_BASE_URL}/js/progress.0ea083b809812c0e3aa1.bundle.min.js`,
+  `${ELEMENTOR_ASSET_BASE_URL}/js/image-carousel.6167d20b95b33386757b.bundle.min.js`,
+  `${ELEMENTOR_ASSET_BASE_URL}/js/nav-menu.3afa8f5eb1fef7c22561.bundle.min.js`,
+  `${ELEMENTOR_ASSET_BASE_URL}/js/form.cfd61a9174be80f835c6.bundle.min.js`,
+  `${ELEMENTOR_ASSET_BASE_URL}/js/slides.8e9b74f1b31471377df8.bundle.min.js`,
   `${ELEMENTOR_ASSET_BASE_URL}/js/jquery-numerator.min.js`,
   `${ELEMENTOR_ASSET_BASE_URL}/js/jquery.smartmenus.min.js`,
   `${ELEMENTOR_ASSET_BASE_URL}/js/swiper.min.js`,

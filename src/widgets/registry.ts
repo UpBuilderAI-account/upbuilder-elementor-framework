@@ -115,6 +115,18 @@ export const WIDGET_REGISTRY: Record<string, WidgetDefinition> = {
       image_size: 'full',
     },
   },
+  'image-gallery': {
+    elType: 'widget',
+    widgetType: 'image-gallery',
+    upbuilderType: 'ImageGallery',
+    category: 'media',
+    plugin: 'elementor',
+    voidElement: true,
+    defaultSettings: {
+      gallery_columns: 4,
+      gallery_link: 'file',
+    },
+  },
   video: {
     elType: 'widget',
     widgetType: 'video',
@@ -226,7 +238,7 @@ export const WIDGET_REGISTRY: Record<string, WidgetDefinition> = {
     voidElement: true,
     defaultSettings: {
       progress_type: 'default',
-      display_percentage: 'yes',
+      display_percentage: 'show',
     },
   },
   testimonial: {
@@ -297,6 +309,21 @@ export const WIDGET_REGISTRY: Record<string, WidgetDefinition> = {
       icon_align: 'right',
     },
   },
+  'image-carousel': {
+    elType: 'widget',
+    widgetType: 'image-carousel',
+    upbuilderType: 'ImageCarousel',
+    category: 'media',
+    plugin: 'elementor',
+    voidElement: true,
+    defaultSettings: {
+      slides_to_show: 3,
+      slides_to_scroll: 1,
+      navigation: 'both',
+      autoplay: 'yes',
+      infinite: 'yes',
+    },
+  },
 
   // Social
   'social-icons': {
@@ -332,8 +359,18 @@ export const WIDGET_REGISTRY: Record<string, WidgetDefinition> = {
     voidElement: true,
   },
 
-  // Forms (MetForm)
+  // Elementor Pro Form
   form: {
+    elType: 'widget',
+    widgetType: 'form',
+    upbuilderType: 'ElementorForm',
+    category: 'forms',
+    plugin: 'elementor-pro',
+    voidElement: true,
+  },
+
+  // Legacy MetForm entry. Keep it addressable without shadowing native widgetType "form".
+  metform: {
     elType: 'widget',
     widgetType: 'mf',
     upbuilderType: 'Form',
@@ -450,14 +487,6 @@ export const WIDGET_REGISTRY: Record<string, WidgetDefinition> = {
     widgetType: 'gallery',
     upbuilderType: 'Gallery',
     category: 'media',
-    plugin: 'elementor-pro',
-    voidElement: true,
-  },
-  'elementor-form': {
-    elType: 'widget',
-    widgetType: 'form',
-    upbuilderType: 'ElementorForm',
-    category: 'forms',
     plugin: 'elementor-pro',
     voidElement: true,
   },
