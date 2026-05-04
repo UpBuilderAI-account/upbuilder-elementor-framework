@@ -68,6 +68,7 @@ export {
   useElementorCSS,
   StyleTag,
   CollectedStyles,
+  KIT_DEFAULTS_CSS,
 } from './lib/css-context';
 
 export {
@@ -210,6 +211,12 @@ export {
 } from './generator';
 
 export type { BuildTemplateOptions } from './generator';
+
+// =============================================================================
+// PLACEHOLDER (for scaffold stubs - inline styles only, no interference)
+// =============================================================================
+
+export { Placeholder } from './placeholder';
 
 // =============================================================================
 // VERSION
