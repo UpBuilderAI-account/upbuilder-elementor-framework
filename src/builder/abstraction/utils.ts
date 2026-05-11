@@ -12,6 +12,7 @@ import type {
   CarouselImage,
   ElementorFormField,
   SlideItem,
+  TestimonialItem,
   JsonValue,
   ElementorSettingsInput,
   TextShadowValue,
@@ -494,6 +495,18 @@ export function normalizeSlideItem(slide: SlideItem, index: number): Record<stri
   return normalized
 }
 
+export function normalizeTestimonialItem(item: TestimonialItem, index: number): Record<string, JsonValue> {
+  const image = normalizeImage(item.image)
+  const normalized: Record<string, JsonValue> = {
+    _id: stableRepeaterId('testimonial', index, item._id),
+    name: item.name ?? '',
+    title: item.title ?? '',
+    content: item.content ?? '',
+  }
+  if (image) normalized.image = image as JsonValue
+  return normalized
+}
+
 // =============================================================================
 // GRID HELPERS
 // =============================================================================
@@ -629,4 +642,118 @@ export function mapSharedLayoutProps(
     if (sticky.anchorLinkOffset !== undefined) setResponsiveSetting(settings, 'sticky_anchor_link_offset', sticky.anchorLinkOffset, normalizeSliderValue)
     if (sticky.parent !== undefined) settings.sticky_parent = sticky.parent ? 'yes' : ''
   }
+
+  if (props.advanced) {
+    mapAdvancedSettings(settings, props.advanced, target)
+  }
+}
+
+// =============================================================================
+// ADVANCED PROPS MAPPER
+// =============================================================================
+
+/**
+ * Maps the universal Advanced tab controls (`advanced` prop on every widget +
+ * container) to Elementor's `_*` setting keys. Widgets prefix everything with
+ * `_` (e.g. `_padding`, `_background_color`). Containers use the same keys
+ * minus the underscore for legacy outer-styling settings (`padding`,
+ * `background_color`), but flex-item and visibility settings (`_flex_*`,
+ * `hide_*`) are identical for both.
+ */
+export function mapAdvancedSettings(
+  settings: ElementorSettingsInput,
+  advanced: NonNullable<BaseProps['advanced']>,
+  target: 'container' | 'widget'
+) {
+  const prefix = target === 'widget' ? '_' : ''
+
+  // Background
+  if (advanced.backgroundColor || advanced.backgroundImage || advanced.backgroundGradient) {
+    if (advanced.backgroundGradient) {
+      const g = advanced.backgroundGradient
+      settings[`${prefix}background_background`] = 'gradient'
+      if (g.colorA) settings[`${prefix}background_color`] = g.colorA
+      if (g.colorB) settings[`${prefix}background_color_b`] = g.colorB
+      if (g.type === 'radial') {
+        settings[`${prefix}background_gradient_type`] = 'radial'
+        if (g.position) settings[`${prefix}background_gradient_position`] = g.position
+      } else {
+        settings[`${prefix}background_gradient_type`] = 'linear'
+        if (g.angle !== undefined) settings[`${prefix}background_gradient_angle`] = { size: g.angle, unit: 'deg' }
+      }
+      if (g.locationA !== undefined) settings[`${prefix}background_color_stop`] = { size: g.locationA, unit: '%' }
+      if (g.locationB !== undefined) settings[`${prefix}background_color_b_stop`] = { size: g.locationB, unit: '%' }
+    } else if (advanced.backgroundImage) {
+      settings[`${prefix}background_background`] = 'classic'
+      settings[`${prefix}background_image`] = { url: advanced.backgroundImage.url }
+      if (advanced.backgroundImage.position) settings[`${prefix}background_position`] = advanced.backgroundImage.position
+      if (advanced.backgroundImage.size) settings[`${prefix}background_size`] = advanced.backgroundImage.size
+      if (advanced.backgroundImage.repeat) settings[`${prefix}background_repeat`] = advanced.backgroundImage.repeat
+      if (advanced.backgroundColor) settings[`${prefix}background_color`] = advanced.backgroundColor
+    } else if (advanced.backgroundColor) {
+      settings[`${prefix}background_background`] = 'classic'
+      settings[`${prefix}background_color`] = advanced.backgroundColor
+    }
+  }
+
+  // Padding (responsive)
+  if (advanced.padding !== undefined) {
+    setResponsiveSetting(settings, `${prefix}padding`, advanced.padding, normalizeDimensions)
+  }
+  // Margin (responsive)
+  if (advanced.margin !== undefined) {
+    setResponsiveSetting(settings, `${prefix}margin`, advanced.margin, normalizeDimensions)
+  }
+
+  // Border type/width/color
+  if (advanced.borderType) settings[`${prefix}border_border`] = advanced.borderType
+  if (advanced.borderWidth !== undefined) {
+    settings[`${prefix}border_width`] = normalizeDimensions(advanced.borderWidth) as JsonValue
+  }
+  if (advanced.borderColor) settings[`${prefix}border_color`] = advanced.borderColor
+
+  // Border radius (responsive)
+  if (advanced.borderRadius !== undefined) {
+    setResponsiveSetting(settings, `${prefix}border_radius`, advanced.borderRadius, normalizeDimensions)
+  }
+
+  // Box shadow
+  if (advanced.boxShadow) {
+    const s = advanced.boxShadow
+    settings[`${prefix}box_shadow_box_shadow_type`] = 'yes'
+    settings[`${prefix}box_shadow_box_shadow`] = {
+      horizontal: s.horizontal ?? 0,
+      vertical: s.vertical ?? 4,
+      blur: s.blur ?? 12,
+      spread: s.spread ?? 0,
+      color: s.color ?? 'rgba(0,0,0,0.15)',
+    }
+  }
+
+  // Z-index — overrides top-level `zIndex` if both set
+  if (advanced.zIndex !== undefined) {
+    setResponsiveNumberSetting(settings, `${prefix}z_index`, advanced.zIndex)
+  }
+
+  // Flex item placement (always _flex_* for both targets — same selector)
+  if (advanced.alignSelf !== undefined) {
+    setResponsiveSetting(settings, '_flex_align_self', advanced.alignSelf)
+    settings._flex_size = settings._flex_size ?? 'custom'
+  }
+  if (advanced.flexGrow !== undefined) {
+    setResponsiveSetting(settings, '_flex_grow', advanced.flexGrow)
+    settings._flex_size = 'custom'
+  }
+  if (advanced.flexShrink !== undefined) {
+    setResponsiveSetting(settings, '_flex_shrink', advanced.flexShrink)
+    settings._flex_size = 'custom'
+  }
+  if (advanced.flexOrder !== undefined) {
+    setResponsiveSetting(settings, '_flex_order', advanced.flexOrder)
+  }
+
+  // Visibility per breakpoint
+  if (advanced.hideOnDesktop) settings.hide_desktop = 'hidden-desktop'
+  if (advanced.hideOnTablet) settings.hide_tablet = 'hidden-tablet'
+  if (advanced.hideOnMobile) settings.hide_mobile = 'hidden-mobile'
 }

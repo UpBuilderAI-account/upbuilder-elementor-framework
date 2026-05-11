@@ -58,10 +58,17 @@ export type {
   ImageCarouselProps,
   NavMenuItem,
   NavMenuProps,
+  NavbarLogoLike,
+  NavbarFallbackLink,
+  NavbarCtaLike,
+  NavbarProps,
+  HtmlEmbedProps,
   ElementorFormField,
   ElementorFormProps,
   SlideItem,
   SlidesProps,
+  TestimonialItem,
+  TestimonialCarouselProps,
   InternalFlexboxProps,
   AbstractionKind,
   AbstractionComponentMeta,
@@ -114,6 +121,7 @@ export {
   normalizeFormOptions,
   normalizeElementorFormField,
   normalizeSlideItem,
+  normalizeTestimonialItem,
   normalizeGridGaps,
   normalizeGridTrackValue,
   formatGridTrack,
@@ -146,6 +154,7 @@ export {
   getNavMenuCSS,
   getElementorFormCSS,
   getSlidesCSS,
+  getTestimonialCarouselCSS,
   getImageCSS,
   widgetDataSettings,
 } from './css';
@@ -163,9 +172,7 @@ export {
 // Components
 export {
   Page,
-  Grid,
-  Flexbox,
-  Section,
+  Container,
   Heading,
   TextEditor,
   Button,
@@ -182,8 +189,13 @@ export {
   ProgressBar,
   ImageCarousel,
   NavMenu,
+  Navbar,
+  HtmlEmbed,
   ElementorForm,
   Slides,
+  TestimonialCarousel,
   Image,
   DocumentBuilder,
 } from './components';
+
+export type { ContainerProps, ContainerLayout } from './components';

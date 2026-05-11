@@ -26,6 +26,7 @@
   "scripts": {
     "build": "tsc -p tsconfig.build.json && node scripts/copy-elementor-assets.cjs",
     "typecheck": "tsc --noEmit",
+    "check:defaults": "node scripts/check-default-props-drift.cjs",
     "clean": "rimraf dist"
   },
   "repository": {

@@ -3,6 +3,26 @@
  * Maps React props to Elementor settings format
  */
 
+/**
+ * Resolve `asset://` prefixed URLs against `window.__UP_IMAGES_BASE_URL` so
+ * the React preview iframe can load images from S3. On the server (build/
+ * export pipeline) `window` is undefined and we leave the `asset://` prefix
+ * intact for downstream code (`resolveAssetUrlsInSettings` in the backend
+ * builder) to substitute the project-specific S3 path.
+ *
+ * Without this, `<Container backgroundImage={{ url: "asset://hero.webp" }} />`
+ * rendered in the iframe ends up with `background-image: url(asset://...)`
+ * which the browser cannot resolve → no image visible in the preview, even
+ * though the Elementor PHP render works correctly.
+ */
+function resolveAssetUrlForPreview(url: string): string {
+  if (url.startsWith('asset://') && typeof window !== 'undefined') {
+    const baseUrl = (window as { __UP_IMAGES_BASE_URL?: string }).__UP_IMAGES_BASE_URL
+    if (baseUrl) return url.replace('asset://', baseUrl + '/')
+  }
+  return url
+}
+
 import type {
   GridProps,
   FlexboxProps,
@@ -24,6 +44,7 @@ import type {
   NavMenuProps,
   ElementorFormProps,
   SlidesProps,
+  TestimonialCarouselProps,
   ElementorSettingsInput,
   JsonValue,
   BaseProps,
@@ -52,6 +73,7 @@ import {
   normalizeCarouselImage,
   normalizeElementorFormField,
   normalizeSlideItem,
+  normalizeTestimonialItem,
   setResponsiveSetting,
   setResponsiveNumberSetting,
   setTextStrokeSettings,
@@ -124,7 +146,33 @@ export function mapGridProps(props: Record<string, unknown>): ElementorSettingsI
   if (p.padding !== undefined) setResponsiveSetting(settings, 'padding', p.padding, normalizeDimensions)
   if (p.margin !== undefined) setResponsiveSetting(settings, 'margin', p.margin, normalizeDimensions)
 
-  if (p.backgroundColor) {
+  // The unified Container API exposes backgroundImage / backgroundGradient on
+  // grid layouts too. The legacy GridProps type didn't include them, but
+  // ContainerProps does — accept them via a relaxed cast and drop into the
+  // same shape mapFlexboxProps uses.
+  const bgP = p as GridProps & { backgroundImage?: { url: string; position?: string; size?: string; repeat?: string }; backgroundGradient?: { type?: 'linear' | 'radial'; angle?: number; position?: string; colorA?: string; colorB?: string; locationA?: number; locationB?: number } }
+  if (bgP.backgroundGradient) {
+    const g = bgP.backgroundGradient
+    settings.background_background = 'gradient'
+    settings.background_color = g.colorA || '#6EC1E4'
+    settings.background_color_b = g.colorB || '#54595F'
+    if (g.type === 'radial') {
+      settings.background_gradient_type = 'radial'
+      if (g.position) settings.background_gradient_position = g.position
+    } else {
+      settings.background_gradient_type = 'linear'
+      if (g.angle !== undefined) settings.background_gradient_angle = { size: g.angle, unit: 'deg' }
+    }
+    if (g.locationA !== undefined) settings.background_color_stop = { size: g.locationA, unit: '%' }
+    if (g.locationB !== undefined) settings.background_color_b_stop = { size: g.locationB, unit: '%' }
+  } else if (bgP.backgroundImage) {
+    settings.background_background = 'classic'
+    settings.background_image = { url: resolveAssetUrlForPreview(bgP.backgroundImage.url) }
+    if (bgP.backgroundImage.position) settings.background_position = bgP.backgroundImage.position
+    if (bgP.backgroundImage.size) settings.background_size = bgP.backgroundImage.size
+    if (bgP.backgroundImage.repeat) settings.background_repeat = bgP.backgroundImage.repeat
+    if (p.backgroundColor) settings.background_color = p.backgroundColor
+  } else if (p.backgroundColor) {
     settings.background_background = 'classic'
     settings.background_color = p.backgroundColor
   }
@@ -185,7 +233,7 @@ export function mapFlexboxProps(props: Record<string, unknown>): ElementorSettin
     if (g.locationB !== undefined) settings.background_color_b_stop = { size: g.locationB, unit: '%' }
   } else if (p.backgroundImage) {
     settings.background_background = 'classic'
-    settings.background_image = { url: p.backgroundImage.url }
+    settings.background_image = { url: resolveAssetUrlForPreview(p.backgroundImage.url) }
     if (p.backgroundImage.position) settings.background_position = p.backgroundImage.position
     if (p.backgroundImage.size) settings.background_size = p.backgroundImage.size
     if (p.backgroundImage.repeat) settings.background_repeat = p.backgroundImage.repeat
@@ -210,6 +258,13 @@ export function mapFlexboxProps(props: Record<string, unknown>): ElementorSettin
         settings.background_overlay_gradient_type = 'linear'
         if (g.angle !== undefined) settings.background_overlay_gradient_angle = { size: g.angle, unit: 'deg' }
       }
+    }
+    // Pass through the required `backgroundOverlayOpacity`. The validator
+    // enforces that it is set whenever `backgroundOverlay` is set; this
+    // mapping is the single place the value reaches Elementor's overlay
+    // opacity setting (which the PHP renderer applies as --overlay-opacity).
+    if (p.backgroundOverlayOpacity !== undefined) {
+      settings.background_overlay_opacity = { size: p.backgroundOverlayOpacity, unit: 'px' }
     }
   }
 
@@ -241,6 +296,7 @@ export function mapFlexboxProps(props: Record<string, unknown>): ElementorSettin
   if (p.flexGrow !== undefined || p.flexShrink !== undefined) settings._flex_size = 'custom'
   if (p.flexGrow !== undefined) setResponsiveSetting(settings, '_flex_grow', p.flexGrow)
   if (p.flexShrink !== undefined) setResponsiveSetting(settings, '_flex_shrink', p.flexShrink)
+  if (p.alignSelf !== undefined) setResponsiveSetting(settings, '_flex_align_self', p.alignSelf)
 
   if (p.settings) Object.assign(settings, p.settings)
   return settings
@@ -892,6 +948,88 @@ export function mapWidgetProps(widgetKey: string, props: Record<string, unknown>
       if (p.buttonHoverBorderColor) settings.button_hover_border_color = p.buttonHoverBorderColor
       setSimpleTypographySettings(settings, 'heading_typography', p as Record<string, unknown>, 'heading')
       setSimpleTypographySettings(settings, 'description_typography', p as Record<string, unknown>, 'description')
+      break
+    }
+
+    case 'testimonial-carousel': {
+      const p = props as TestimonialCarouselProps
+      // Repeater (Elementor key is `slides`, not `items` — base carousel widget convention)
+      settings.slides = (p.items || []).map(normalizeTestimonialItem) as JsonValue
+      if (p.slidesName) settings.slides_name = p.slidesName
+
+      // Skin & layout
+      if (p.skin) settings.skin = p.skin
+      if (p.layout) settings.layout = p.layout
+      setResponsiveSetting(settings, 'alignment', p.alignment)
+
+      // Carousel behavior
+      setResponsiveSetting(settings, 'slides_per_view', p.slidesPerView)
+      setResponsiveSetting(settings, 'slides_to_scroll', p.slidesToScroll)
+      setResponsiveSetting(settings, 'width', p.width, normalizeSliderValue)
+      setResponsiveSetting(settings, 'space_between', p.spaceBetween, normalizeSliderValue)
+      if (p.lazyload !== undefined) settings.lazyload = p.lazyload ? 'yes' : ''
+
+      // Per-slide wrapper styling
+      if (p.slideBackgroundColor) settings.slide_background_color = p.slideBackgroundColor
+      if (p.slideBorderSize !== undefined) settings.slide_border_size = normalizeDimensions(p.slideBorderSize) as JsonValue
+      if (p.slideBorderRadius !== undefined) settings.slide_border_radius = normalizeSliderValue(p.slideBorderRadius) as JsonValue
+      if (p.slideBorderColor) settings.slide_border_color = p.slideBorderColor
+      if (p.slidePadding !== undefined) settings.slide_padding = normalizeDimensions(p.slidePadding) as JsonValue
+
+      // Navigation (derive show_arrows + pagination from `navigation` shortcut, but allow overrides)
+      if (p.navigation) {
+        const showArrows = p.navigation === 'arrows' || p.navigation === 'both' ? 'yes' : ''
+        const pagination = p.navigation === 'dots' || p.navigation === 'both' ? 'bullets' : ''
+        settings.show_arrows = showArrows
+        settings.pagination = pagination
+      }
+      if (p.showArrows !== undefined) settings.show_arrows = p.showArrows ? 'yes' : ''
+      if (p.pagination !== undefined) settings.pagination = p.pagination === 'none' ? '' : p.pagination
+
+      if (p.autoplay !== undefined) settings.autoplay = p.autoplay ? 'yes' : ''
+      if (p.autoplaySpeed !== undefined) settings.autoplay_speed = p.autoplaySpeed
+      if (p.transitionSpeed !== undefined) settings.speed = p.transitionSpeed
+      if (p.infinite !== undefined) settings.loop = p.infinite ? 'yes' : ''
+      if (p.pauseOnHover !== undefined) settings.pause_on_hover = p.pauseOnHover ? 'yes' : ''
+      if (p.pauseOnInteraction !== undefined) settings.pause_on_interaction = p.pauseOnInteraction ? 'yes' : ''
+
+      // Image (avatar) styling
+      setResponsiveSetting(settings, 'image_size', p.imageSize, normalizeSliderValue)
+      setResponsiveSetting(settings, 'image_gap', p.imageGap, normalizeSliderValue)
+      if (p.imageBorder !== undefined) settings.image_border = p.imageBorder ? 'yes' : ''
+      if (p.imageBorderColor) settings.image_border_color = p.imageBorderColor
+      setResponsiveSetting(settings, 'image_border_width', p.imageBorderWidth, normalizeSliderValue)
+      if (p.imageBorderRadius !== undefined) settings.image_border_radius = normalizeSliderValue(p.imageBorderRadius) as JsonValue
+
+      // Content (quote) styling
+      if (p.contentColor) settings.content_color = p.contentColor
+      setResponsiveSetting(settings, 'content_gap', p.contentGap, normalizeSliderValue)
+      setSimpleTypographySettings(settings, 'content_typography', p as Record<string, unknown>, 'content')
+
+      // Name styling
+      if (p.nameColor) settings.name_color = p.nameColor
+      setSimpleTypographySettings(settings, 'name_typography', p as Record<string, unknown>, 'name')
+
+      // Title (role) styling
+      if (p.titleColor) settings.title_color = p.titleColor
+      setSimpleTypographySettings(settings, 'title_typography', p as Record<string, unknown>, 'title')
+
+      // Bubble skin
+      if (p.backgroundColor) settings.background_color = p.backgroundColor
+      setResponsiveSetting(settings, 'text_padding', p.textPadding, normalizeDimensions)
+      setResponsiveSetting(settings, 'border_radius', p.borderRadius, normalizeDimensions)
+      if (p.border !== undefined) settings.border = p.border ? 'yes' : ''
+      if (p.borderColor) settings.border_color = p.borderColor
+      setResponsiveSetting(settings, 'border_width', p.borderWidth, normalizeSliderValue)
+
+      // Navigation styling
+      setResponsiveSetting(settings, 'arrows_size', p.arrowsSize, normalizeSliderValue)
+      if (p.arrowsColor) settings.arrows_color = p.arrowsColor
+      setResponsiveSetting(settings, 'pagination_size', p.paginationSize, normalizeSliderValue)
+      setResponsiveSetting(settings, 'pagination_gap', p.paginationGap, normalizeSliderValue)
+      if (p.paginationColor) settings.pagination_color = p.paginationColor
+      if (p.paginationColorInactive) settings.pagination_color_inactive = p.paginationColorInactive
+
       break
     }
   }

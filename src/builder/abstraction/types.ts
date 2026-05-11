@@ -67,6 +67,58 @@ export type ElementorSettingsInput = Record<string, JsonValue>
 // BASE PROPS
 // =============================================================================
 
+/**
+ * Universal "Advanced" tab controls that Elementor exposes on every widget
+ * and container — backgrounds, padding/margin, border, border-radius, shadow,
+ * flex-self, hide-on-breakpoint, etc. Mapping to Elementor's universal `_*`
+ * setting keys (defined in `Widget_Common_Base::register_controls`).
+ *
+ * Use this on a widget when you would otherwise wrap it in a Flexbox just to
+ * give it a background/padding/border (e.g. eyebrow/chip/pill, callout
+ * heading, badged text). The result: one element, one DOM node, same
+ * Elementor JSON output as a properly-configured Advanced tab.
+ *
+ * Example — eyebrow chip on a Heading without a wrapper Flexbox:
+ *   <TextEditor
+ *     content="<p>Live ecommerce intelligence</p>"
+ *     color="#126bff"
+ *     fontSize={14}
+ *     advanced={{
+ *       backgroundColor: "#e7f0ff",
+ *       padding: { top: 8, right: 14, bottom: 8, left: 14 },
+ *       borderRadius: 999,
+ *       alignSelf: "flex-start",
+ *     }}
+ *   />
+ */
+export type AdvancedProps = {
+  // Background
+  backgroundColor?: string
+  backgroundImage?: BackgroundImageValue
+  backgroundGradient?: GradientValue
+  // Spacing (responsive)
+  padding?: ResponsiveValue<DimensionsValue>
+  margin?: ResponsiveValue<DimensionsValue>
+  // Border + radius (responsive radius)
+  borderType?: 'none' | 'solid' | 'double' | 'dotted' | 'dashed'
+  borderWidth?: ResponsiveValue<DimensionsValue>
+  borderColor?: string
+  borderRadius?: ResponsiveValue<DimensionsValue>
+  // Shadow
+  boxShadow?: BoxShadowValue
+  // Flex-item alignment in parent (responsive)
+  alignSelf?: ResponsiveValue<'flex-start' | 'center' | 'flex-end' | 'stretch' | 'baseline' | 'normal'>
+  flexGrow?: ResponsiveValue<number>
+  flexShrink?: ResponsiveValue<number>
+  flexOrder?: ResponsiveValue<number>
+  // Stacking
+  zIndex?: ResponsiveValue<number>
+  // Visibility per breakpoint
+  hideOnDesktop?: boolean
+  hideOnTablet?: boolean
+  hideOnMobile?: boolean
+}
+
 export type BaseProps = {
   id?: string
   className?: string
@@ -77,6 +129,14 @@ export type BaseProps = {
   positioning?: LayoutPositionValue
   zIndex?: ResponsiveValue<number>
   sticky?: StickyPositionValue
+  /**
+   * Universal Elementor Advanced tab controls — see {@link AdvancedProps}.
+   * Lets a widget render with bg/padding/border/etc. without a wrapper
+   * Flexbox. Maps to `_background_*`, `_padding`, `_margin`, `_border_*`,
+   * `_border_radius`, `_box_shadow_*`, `_flex_align_self`, `_z_index`,
+   * `hide_*` setting keys.
+   */
+  advanced?: AdvancedProps
   [key: `data-${string}`]: string | number | boolean | undefined
   [key: `aria-${string}`]: string | number | boolean | undefined
 }
@@ -174,7 +234,25 @@ export type FlexboxProps = BaseProps & {
   backgroundColor?: string
   backgroundGradient?: GradientValue
   backgroundImage?: BackgroundImageValue
+  /**
+   * Color or gradient applied as a `::before` overlay on top of
+   * `backgroundImage` / `backgroundColor`. Always pair with
+   * `backgroundOverlayOpacity` — Elementor's PHP renderer multiplies the
+   * overlay color by `--overlay-opacity` (default 0.5), so a string color
+   * like `"rgba(0,21,56,0.60)"` alone produces different results in React
+   * preview vs PHP unless opacity is explicit.
+   */
   backgroundOverlay?: string | GradientValue
+  /**
+   * REQUIRED when `backgroundOverlay` is set. Number between 0 and 1
+   * (1 = full overlay color visible, 0 = invisible). Maps to Elementor's
+   * `background_overlay_opacity` setting which the PHP renderer applies as
+   * `--overlay-opacity`. Pick the effective intensity you want — this is
+   * multiplied with the alpha of the overlay color, so
+   * `rgba(...,0.60)` + `backgroundOverlayOpacity={0.5}` = 30% effective.
+   * Set to 1 to use the rgba alpha as the literal effective opacity.
+   */
+  backgroundOverlayOpacity?: number
   borderRadius?: DimensionsValue
   borderType?: 'none' | 'solid' | 'double' | 'dotted' | 'dashed'
   borderWidth?: DimensionsValue
@@ -186,6 +264,15 @@ export type FlexboxProps = BaseProps & {
   boxedWidth?: ResponsiveValue<SliderValue>
   flexGrow?: ResponsiveValue<number>
   flexShrink?: ResponsiveValue<number>
+  /**
+   * Aligns THIS container along the cross-axis of its flex parent — overrides
+   * the parent's `alignItems` for this child only. Use `flex-start` to make a
+   * tag/eyebrow/badge wrapper shrink to its content inside a column-direction
+   * parent (otherwise the parent's default `align-items: stretch` makes the
+   * child fill the full cross-axis width).
+   * Maps to Elementor's container `_flex_align_self` setting.
+   */
+  alignSelf?: ResponsiveValue<'flex-start' | 'center' | 'flex-end' | 'stretch' | 'baseline' | 'normal'>
   overflow?: 'visible' | 'hidden'
 }
 
@@ -687,10 +774,120 @@ export type NavMenuProps = BaseProps & {
   letterSpacing?: ResponsiveValue<SliderValue>
 }
 
+// =============================================================================
+// COMPOSITE NAVBAR
+// =============================================================================
+// <Navbar> is a higher-level helper that compiles to Section + Flexbox + Logo
+// + NavMenu (Pro) or fallback Buttons + CTA at export time. The expansion
+// happens server-side in `lowerNavbarElements()`. This React component only
+// powers the live preview.
+
+export type NavbarLogoLike = {
+  src: string
+  alt?: string
+  href?: string
+  width?: SliderValue
+  height?: SliderValue
+}
+
+export type NavbarFallbackLink = {
+  text: string
+  href: string
+  children?: Array<{ text: string; href: string }>
+}
+
+export type NavbarCtaLike = {
+  text: string
+  href: string
+  variant?: 'primary' | 'secondary' | 'outline'
+  background?: string
+  color?: string
+  hoverBackground?: string
+  hoverColor?: string
+  borderRadius?: SliderValue
+  borderWidth?: number
+  borderColor?: string
+}
+
+export type NavbarProps = BaseProps & {
+  /** Brand logo. Renders as a linked image at the start of the bar. */
+  logo?: NavbarLogoLike
+  /** WP menu slug for the native nav-menu render (Pro export). */
+  menu?: string
+  /** Display name for the WP menu (for AI / docs). */
+  menuName?: string
+  /**
+   * Preview-only fallback link list. Also used by the no-Pro export path,
+   * which compiles them into individual Button widgets.
+   */
+  fallbackLinks?: NavbarFallbackLink[]
+  /** Trailing CTA button. */
+  cta?: NavbarCtaLike
+
+  /** Layout variant. Default 'logo-left'. */
+  layout?: 'logo-left' | 'logo-center' | 'split'
+  /** Container sticky behavior. Default 'top'. */
+  sticky?: 'top' | 'none'
+  /** Below this breakpoint, the menu collapses into a hamburger. */
+  mobileBreakpoint?: 'mobile' | 'tablet' | 'none'
+  /** Gap between logo / menu / cta. */
+  innerGap?: SliderValue
+
+  // Menu styling (apply to NavMenu's text/state colors)
+  menuColor?: string
+  menuHoverColor?: string
+  menuActiveColor?: string
+  menuFontSize?: ResponsiveValue<SliderValue>
+  menuFontWeight?: string | number
+  menuGap?: ResponsiveValue<SliderValue>
+  menuItemPaddingH?: ResponsiveValue<SliderValue>
+  menuItemPaddingV?: ResponsiveValue<SliderValue>
+
+  // Pointer (active-link indicator)
+  pointer?: 'none' | 'underline' | 'overline' | 'double-line' | 'framed' | 'background' | 'text'
+  pointerColor?: string
+
+  // Dropdown (open-submenu / mobile-menu) styling
+  dropdownBackground?: string
+  dropdownColor?: string
+  dropdownTextHoverColor?: string
+  submenuIcon?: IconLike
+
+  // Hamburger
+  hamburgerColor?: string
+  hamburgerSize?: ResponsiveValue<SliderValue>
+
+  // Pass-through to outer Section
+  backgroundColor?: string
+  padding?: ResponsiveValue<DimensionsValue>
+  borderBottomWidth?: number
+  borderBottomColor?: string
+  zIndex?: number
+}
+
+// =============================================================================
+// HTML EMBED — escape hatch for raw HTML / inline SVG / iframes
+// =============================================================================
+// Compiles to Elementor's `html` widget (Widget_Html), whose render() is
+// `print_unescaped_setting('html')` — the markup is dumped to the page exactly
+// as-is. Use for designs that have no Elementor primitive: SVG `<textPath>`
+// (text wrapping a curve), custom `<svg>` shapes, third-party `<iframe>`
+// embeds, raw script blocks, or any visual that the existing widgets can't
+// reproduce.
+//
+// Preview renders via React's `dangerouslySetInnerHTML`. The `html` string is
+// already trusted code authored by the AI — there is no XSS path because
+// nothing user-supplied flows in here.
+
+export type HtmlEmbedProps = BaseProps & {
+  /** Raw HTML / SVG / iframe markup. Rendered exactly as written. */
+  html: string
+}
+
 export type ElementorFormField = {
   _id?: string
   custom_id?: string
-  type?: 'text' | 'email' | 'textarea' | 'url' | 'tel' | 'radio' | 'select' | 'checkbox' | 'acceptance' | 'number' | 'date' | 'time' | 'upload' | 'password' | 'html' | 'hidden'
+  type?: 'text' | 'email' | 'textarea' | 'url' | 'tel' | 'radio' | 'select' | 'checkbox' | 'acceptance' | 'number' | 'date' | 'time' | 'upload' | 'password' | 'html' | 'hidden' | 'step'
   field_type?: string
   label?: string
   field_label?: string
@@ -700,7 +897,7 @@ export type ElementorFormField = {
   field_options?: string
   defaultValue?: string
   field_value?: string
-  width?: string
+  width?: ResponsiveValue<string>
   rows?: number
   css_classes?: string
   field_html?: string
@@ -709,6 +906,9 @@ export type ElementorFormField = {
   select_size?: number
   min?: number
   max?: number
+  previous_button?: string
+  next_button?: string
+  selected_icon?: IconLike
 }
 
 export type ElementorFormProps = BaseProps & {
@@ -719,27 +919,80 @@ export type ElementorFormProps = BaseProps & {
   showLabels?: boolean
   markRequired?: boolean
   labelPosition?: 'above' | 'inline'
+  formValidation?: 'browser' | 'custom'
   buttonText?: string
   buttonSize?: 'xs' | 'sm' | 'md' | 'lg' | 'xl'
   buttonWidth?: ResponsiveValue<SliderValue>
   buttonAlign?: ResponsiveValue<'start' | 'center' | 'end' | 'stretch'>
+  buttonContentAlign?: ResponsiveValue<'start' | 'center' | 'end' | 'space-between' | 'space-around'>
   buttonIcon?: IconLike
   buttonIconAlign?: 'left' | 'right'
   buttonIconIndent?: SliderValue
   submitActions?: string[]
   formId?: string
+  buttonCssId?: string
+
+  stepType?: 'none' | 'text' | 'icon' | 'number' | 'progress_bar' | 'number_text' | 'icon_text'
+  stepIconShape?: 'circle' | 'square' | 'rounded' | 'none'
+  stepNextLabel?: string
+  stepPreviousLabel?: string
+
   columnGap?: ResponsiveValue<SliderValue>
   rowGap?: ResponsiveValue<SliderValue>
   labelColor?: string
+  labelSpacing?: ResponsiveValue<SliderValue>
+  markRequiredColor?: string
   fieldTextColor?: string
   fieldBackgroundColor?: string
   fieldBorderColor?: string
+  fieldFocusColor?: string
+  fieldBorderWidth?: DimensionsValue
   fieldBorderRadius?: ResponsiveValue<DimensionsValue>
   buttonTextColor?: string
   buttonBackgroundColor?: string
   buttonBorderColor?: string
+  buttonBorderWidth?: DimensionsValue
+  buttonBorderRadius?: DimensionsValue
+  buttonTextPadding?: DimensionsValue
   buttonHoverTextColor?: string
   buttonHoverBackgroundColor?: string
+  buttonHoverBorderColor?: string
+  buttonHoverAnimation?: string
+  buttonHoverTransitionDuration?: SliderValue
+
+  previousButtonTextColor?: string
+  previousButtonBackgroundColor?: string
+  previousButtonBorderColor?: string
+  previousButtonHoverTextColor?: string
+  previousButtonHoverBackgroundColor?: string
+  previousButtonHoverBorderColor?: string
+
+  stepsTypography?: {
+    fontSize?: ResponsiveValue<SliderValue>
+    fontWeight?: string | number
+    fontFamily?: string
+  }
+  stepsGap?: ResponsiveValue<SliderValue>
+  stepsPadding?: ResponsiveValue<SliderValue>
+  stepsIconSize?: ResponsiveValue<SliderValue>
+  stepInactivePrimaryColor?: string
+  stepInactiveSecondaryColor?: string
+  stepActivePrimaryColor?: string
+  stepActiveSecondaryColor?: string
+  stepCompletedPrimaryColor?: string
+  stepCompletedSecondaryColor?: string
+  stepDividerWidth?: ResponsiveValue<SliderValue>
+  stepDividerGap?: ResponsiveValue<SliderValue>
+
+  stepProgressBarColor?: string
+  stepProgressBarBackgroundColor?: string
+  stepProgressBarHeight?: ResponsiveValue<SliderValue>
+  stepProgressBarBorderRadius?: SliderValue
+
+  successMessageColor?: string
+  errorMessageColor?: string
+  inlineMessageColor?: string
+
   labelFontSize?: ResponsiveValue<SliderValue>
   labelFontWeight?: string | number
   labelFontFamily?: string
@@ -810,6 +1063,90 @@ export type SlidesProps = BaseProps & {
   descriptionFontSize?: ResponsiveValue<SliderValue>
   descriptionFontWeight?: string | number
   descriptionFontFamily?: string
+}
+
+export type TestimonialItem = {
+  _id?: string
+  name?: string
+  title?: string  // job title / role
+  content?: string  // quote
+  image?: ImageLike  // avatar
+}
+
+export type TestimonialCarouselProps = BaseProps & {
+  items?: TestimonialItem[]
+  slidesName?: string  // aria-label for the carousel region
+
+  // Skin & layout
+  skin?: 'default' | 'bubble'
+  layout?: 'image_inline' | 'image_stacked' | 'image_above' | 'image_left' | 'image_right'
+  alignment?: ResponsiveValue<'left' | 'center' | 'right'>
+
+  // Carousel behavior
+  slidesPerView?: ResponsiveValue<number | ''>
+  slidesToScroll?: ResponsiveValue<number | ''>
+  navigation?: 'arrows' | 'dots' | 'both' | 'none'
+  pagination?: 'bullets' | 'fraction' | 'progressbar' | 'none'
+  showArrows?: boolean
+  autoplay?: boolean
+  autoplaySpeed?: number
+  transitionSpeed?: number
+  infinite?: boolean
+  pauseOnHover?: boolean
+  pauseOnInteraction?: boolean
+  spaceBetween?: ResponsiveValue<SliderValue>
+  width?: ResponsiveValue<SliderValue>
+  lazyload?: boolean
+
+  // Per-slide wrapper styling (.swiper-slide)
+  slideBackgroundColor?: string
+  slideBorderSize?: DimensionsValue
+  slideBorderRadius?: SliderValue
+  slideBorderColor?: string
+  slidePadding?: DimensionsValue
+
+  // Image (avatar) styling
+  imageSize?: ResponsiveValue<SliderValue>
+  imageGap?: ResponsiveValue<SliderValue>
+  imageBorder?: boolean
+  imageBorderColor?: string
+  imageBorderWidth?: ResponsiveValue<SliderValue>
+  imageBorderRadius?: SliderValue  // PHP: not responsive
+
+  // Content (quote text) styling
+  contentColor?: string
+  contentFontSize?: ResponsiveValue<SliderValue>
+  contentFontWeight?: string | number
+  contentFontFamily?: string
+  contentGap?: ResponsiveValue<SliderValue>
+
+  // Name styling
+  nameColor?: string
+  nameFontSize?: ResponsiveValue<SliderValue>
+  nameFontWeight?: string | number
+  nameFontFamily?: string
+
+  // Title (role) styling
+  titleColor?: string
+  titleFontSize?: ResponsiveValue<SliderValue>
+  titleFontWeight?: string | number
+  titleFontFamily?: string
+
+  // Bubble skin styling (only when skin='bubble')
+  backgroundColor?: string
+  textPadding?: ResponsiveValue<DimensionsValue>
+  borderRadius?: ResponsiveValue<DimensionsValue>
+  border?: boolean
+  borderColor?: string
+  borderWidth?: ResponsiveValue<SliderValue>
+
+  // Navigation styling
+  arrowsSize?: ResponsiveValue<SliderValue>
+  arrowsColor?: string
+  paginationSize?: ResponsiveValue<SliderValue>
+  paginationGap?: ResponsiveValue<SliderValue>
+  paginationColor?: string
+  paginationColorInactive?: string
 }
 
 // =============================================================================

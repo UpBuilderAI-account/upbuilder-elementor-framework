@@ -11,19 +11,19 @@
  *
  * @example
  * ```tsx
- * import { DocumentBuilder, Section, Grid, Flexbox, Heading, Button } from '@upbuilder/elementor-framework';
+ * import { DocumentBuilder, Container, Heading, Button } from '@upbuilder/elementor-framework';
  *
  * function MyPage() {
  *   return (
  *     <DocumentBuilder title="My Page" onBuild={doc => console.log(doc)}>
- *       <Section contentWidth="full" backgroundColor="#f5f5f5" padding={40} gap={0}>
- *         <Grid columns={3} rows={1} gap={20} padding={0}>
- *           <Flexbox gap={10} padding={20}>
+ *       <Container name="HeroSection" contentWidth="full" backgroundColor="#f5f5f5" padding={40} gap={0}>
+ *         <Container layout="grid" cols={3} rows={1} gap={20} padding={0}>
+ *           <Container layout="column" gap={10} padding={20}>
  *             <Heading title="Hello World" tag="h2" color="#333" />
  *             <Button text="Click Me" align="center" backgroundColor="#6EC1E4" />
- *           </Flexbox>
- *         </Grid>
- *       </Section>
+ *           </Container>
+ *         </Container>
+ *       </Container>
  *     </DocumentBuilder>
  *   );
  * }
@@ -87,6 +87,15 @@ export {
   isValidElementorId,
 } from './lib/id-generator';
 
+export {
+  // Inspector Registry (frontend Styles Panel reads these at runtime)
+  useInspectorRegistry,
+  readInspectorMeta,
+  readAllInspectorMeta,
+} from './lib/inspector-registry';
+
+export type { InspectorMeta } from './lib/inspector-registry';
+
 // =============================================================================
 // ABSTRACTION LAYER (JSX Components)
 // =============================================================================
@@ -96,10 +105,11 @@ export {
   DocumentBuilder,
   useDocument,
 
-  // Container Components
-  Flexbox,
-  Grid,
-  Section,
+  // Container Components — `Container` is the ONLY public layout primitive.
+  // `layout="row" | "column" | "grid"` drives the behavior; `name` makes it a
+  // top-level page section. The legacy Grid / Flexbox / Section components are
+  // no longer exported.
+  Container,
 
   // Widget Components
   Heading,
@@ -119,8 +129,11 @@ export {
   ImageGallery,
   ImageCarousel,
   NavMenu,
+  Navbar,
+  HtmlEmbed,
   ElementorForm,
   Slides,
+  TestimonialCarousel,
 
   // Utility Functions
   createElement,
@@ -129,9 +142,8 @@ export {
 
 // Props Types (from unified abstraction)
 export type {
-  FlexboxProps,
-  GridProps,
-  SectionProps,
+  ContainerProps,
+  ContainerLayout,
   HeadingProps,
   TextEditorProps,
   ButtonProps,
@@ -152,10 +164,17 @@ export type {
   ImageCarouselProps,
   NavMenuProps,
   NavMenuItem,
+  NavbarProps,
+  NavbarLogoLike,
+  NavbarFallbackLink,
+  NavbarCtaLike,
+  HtmlEmbedProps,
   ElementorFormProps,
   ElementorFormField,
   SlidesProps,
   SlideItem,
+  TestimonialCarouselProps,
+  TestimonialItem,
   GalleryImage,
   CarouselImage,
   PageProps,
@@ -189,6 +208,7 @@ export {
   getRequiredChildren,
   getPropertyPrefix,
   getDefaultSettings,
+  getDefaultProps,
 } from './widgets/registry';
 
 export type { WidgetDefinition } from './widgets/registry';

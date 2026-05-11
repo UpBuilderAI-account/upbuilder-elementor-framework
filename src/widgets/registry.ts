@@ -16,7 +16,14 @@ export interface WidgetDefinition {
   category: 'layout' | 'typography' | 'media' | 'interactive' | 'forms' | 'navigation' | 'third-party';
   plugin: 'elementor' | 'elementor-pro' | 'jkit' | 'metform';
   propertyPrefix?: string;
+  /** Defaults at the Elementor settings level (used by export pipeline). */
   defaultSettings?: Record<string, any>;
+  /**
+   * Defaults at the React-prop level (used by the Styles Panel inspector to
+   * filter "non-default" authored props). Mirror the destructured defaults in
+   * the abstraction component for this widget.
+   */
+  defaultProps?: Record<string, any>;
   requiredChildren?: string[];
   voidElement?: boolean;
 }
@@ -36,6 +43,10 @@ export const WIDGET_REGISTRY: Record<string, WidgetDefinition> = {
     defaultSettings: {
       content_width: 'full',
     },
+    defaultProps: {
+      layout: 'column',
+      contentWidth: 'full',
+    },
   },
   flexbox: {
     elType: 'container',
@@ -46,6 +57,10 @@ export const WIDGET_REGISTRY: Record<string, WidgetDefinition> = {
     defaultSettings: {
       content_width: 'full',
       flex_direction: 'column',
+    },
+    defaultProps: {
+      direction: 'column',
+      contentWidth: 'full',
     },
   },
   grid: {
@@ -58,6 +73,9 @@ export const WIDGET_REGISTRY: Record<string, WidgetDefinition> = {
       container_type: 'grid',
       content_width: 'full',
     },
+    defaultProps: {
+      contentWidth: 'full',
+    },
   },
   section: {
     elType: 'container',
@@ -67,6 +85,9 @@ export const WIDGET_REGISTRY: Record<string, WidgetDefinition> = {
     plugin: 'elementor',
     defaultSettings: {
       content_width: 'full',
+    },
+    defaultProps: {
+      contentWidth: 'full',
     },
   },
 
@@ -80,6 +101,10 @@ export const WIDGET_REGISTRY: Record<string, WidgetDefinition> = {
     voidElement: true,
     defaultSettings: {
       header_size: 'h2',
+      size: 'default',
+    },
+    defaultProps: {
+      tag: 'h2',
       size: 'default',
     },
   },
@@ -101,6 +126,9 @@ export const WIDGET_REGISTRY: Record<string, WidgetDefinition> = {
     defaultSettings: {
       size: 'sm',
     },
+    defaultProps: {
+      size: 'sm',
+    },
   },
 
   // Media
@@ -112,6 +140,9 @@ export const WIDGET_REGISTRY: Record<string, WidgetDefinition> = {
     plugin: 'elementor',
     voidElement: true,
     defaultSettings: {
+      image_size: 'full',
+    },
+    defaultProps: {
       image_size: 'full',
     },
   },
@@ -159,6 +190,9 @@ export const WIDGET_REGISTRY: Record<string, WidgetDefinition> = {
     defaultSettings: {
       view: 'default',
     },
+    defaultProps: {
+      view: 'default',
+    },
   },
   'icon-box': {
     elType: 'widget',
@@ -168,6 +202,10 @@ export const WIDGET_REGISTRY: Record<string, WidgetDefinition> = {
     plugin: 'elementor',
     voidElement: true,
     defaultSettings: {
+      view: 'default',
+      position: 'top',
+    },
+    defaultProps: {
       view: 'default',
       position: 'top',
     },
@@ -188,6 +226,9 @@ export const WIDGET_REGISTRY: Record<string, WidgetDefinition> = {
     plugin: 'elementor',
     voidElement: true,
     defaultSettings: {
+      position: 'top',
+    },
+    defaultProps: {
       position: 'top',
     },
   },
@@ -228,6 +269,10 @@ export const WIDGET_REGISTRY: Record<string, WidgetDefinition> = {
       starting_number: 0,
       duration: 2000,
     },
+    defaultProps: {
+      startingNumber: 0,
+      duration: 2000,
+    },
   },
   progress: {
     elType: 'widget',
@@ -239,6 +284,10 @@ export const WIDGET_REGISTRY: Record<string, WidgetDefinition> = {
     defaultSettings: {
       progress_type: 'default',
       display_percentage: 'show',
+    },
+    defaultProps: {
+      progressType: 'default',
+      displayPercentage: 'show',
     },
   },
   testimonial: {
@@ -286,6 +335,9 @@ export const WIDGET_REGISTRY: Record<string, WidgetDefinition> = {
     defaultSettings: {
       icon_align: 'right',
     },
+    defaultProps: {
+      iconAlign: 'right',
+    },
   },
   tabs: {
     elType: 'widget',
@@ -295,6 +347,9 @@ export const WIDGET_REGISTRY: Record<string, WidgetDefinition> = {
     plugin: 'elementor',
     voidElement: true,
     defaultSettings: {
+      type: 'horizontal',
+    },
+    defaultProps: {
       type: 'horizontal',
     },
   },
@@ -307,6 +362,9 @@ export const WIDGET_REGISTRY: Record<string, WidgetDefinition> = {
     voidElement: true,
     defaultSettings: {
       icon_align: 'right',
+    },
+    defaultProps: {
+      iconAlign: 'right',
     },
   },
   'image-carousel': {
@@ -322,6 +380,13 @@ export const WIDGET_REGISTRY: Record<string, WidgetDefinition> = {
       navigation: 'both',
       autoplay: 'yes',
       infinite: 'yes',
+    },
+    defaultProps: {
+      slidesToShow: 3,
+      slidesToScroll: 1,
+      navigation: 'both',
+      autoplay: true,
+      infinite: true,
     },
   },
 
@@ -357,6 +422,28 @@ export const WIDGET_REGISTRY: Record<string, WidgetDefinition> = {
     category: 'navigation',
     plugin: 'elementor-pro',
     voidElement: true,
+  },
+
+  // Composite Navbar (lowered server-side to Section + Flexbox + NavMenu + CTA)
+  navbar: {
+    elType: 'container',
+    widgetType: 'container',
+    upbuilderType: 'Navbar',
+    category: 'navigation',
+    plugin: 'elementor',
+    defaultSettings: {
+      content_width: 'full',
+    },
+    defaultProps: {
+      layout: 'logo-left',
+      mobileBreakpoint: 'tablet',
+      backgroundColor: '#ffffff',
+      menuColor: '#111111',
+      menuHoverColor: '#000000',
+      menuFontWeight: 500,
+      hamburgerColor: '#111111',
+      zIndex: 100,
+    },
   },
 
   // Elementor Pro Form
@@ -636,4 +723,12 @@ export function getPropertyPrefix(widgetType: string): string {
  */
 export function getDefaultSettings(widgetType: string): Record<string, any> {
   return WIDGET_REGISTRY[widgetType]?.defaultSettings || {};
+}
+
+/**
+ * Get default React props for a widget (used by the inspector for
+ * non-default diffing in the Styles Panel).
+ */
+export function getDefaultProps(widgetType: string): Record<string, any> {
+  return WIDGET_REGISTRY[widgetType]?.defaultProps || {};
 }

@@ -73,6 +73,181 @@ function mapFlexAlign(value: string | undefined): string | undefined {
   return value
 }
 
+/**
+ * Pushes `display: none` rules for `hide_desktop`/`hide_tablet`/`hide_mobile`
+ * settings. Used by both widget Advanced CSS and container CSS so the
+ * `advanced.hideOnDesktop/Tablet/Mobile` props work on every element.
+ */
+function pushHideOnBreakpointRules(cssRules: CSSRule[], settings: PreviewSettings) {
+  if (settings.hide_desktop) {
+    cssRules.push({
+      selector: '@media (min-width: 1025px)',
+      properties: { display: 'none' },
+    })
+  }
+  if (settings.hide_tablet) {
+    cssRules.push({
+      selector: '@media (max-width: 1024px) and (min-width: 768px)',
+      properties: { display: 'none' },
+    })
+  }
+  if (settings.hide_mobile) {
+    cssRules.push({
+      selector: '@media (max-width: 767px)',
+      properties: { display: 'none' },
+    })
+  }
+}
+
+// =============================================================================
+// ADVANCED CSS (universal `_*` widget settings)
+// =============================================================================
+
+/**
+ * Emits CSS for the universal Advanced controls (`advanced` prop on every
+ * widget). Targets the widget's outer `.elementor-element-${id}`. Real
+ * Elementor frontends apply these to `{{WRAPPER}} > .elementor-widget-container`,
+ * but our preview renders most widgets without that inner wrapper, so we
+ * apply them to the outer element directly. The exported JSON keeps the
+ * standard `_*` keys, so production rendering still uses Elementor's native
+ * cascade unchanged.
+ */
+export function getAdvancedCSS(id: string, settings: PreviewSettings): string {
+  const cssRules: CSSRule[] = []
+
+  // Helper: parse responsive spacing for a key prefix
+  const padding = parseSpacing(settings._padding)
+  const margin = parseSpacing(settings._margin)
+  const borderRadius = parseBorderRadius(settings._border_radius)
+  const borderWidth = parseSpacing(settings._border_width) || parseDimension(settings._border_width)
+  const borderStyle = settings._border_border
+  const borderColor = settings._border_color
+  const boxShadow = parseBoxShadow(settings._box_shadow_box_shadow, settings, '_box_shadow')
+  const bg = parseBackground(settings, '_background')
+  const zIndex = settings._z_index !== undefined ? String(settings._z_index) : undefined
+  const alignSelf = settings._flex_align_self
+  const flexGrow = settings._flex_grow !== undefined ? String(settings._flex_grow) : undefined
+  const flexShrink = settings._flex_shrink !== undefined ? String(settings._flex_shrink) : undefined
+  const flexOrder = settings._flex_order !== undefined ? String(settings._flex_order) : undefined
+
+  const baseProps: Record<string, string | undefined> = {
+    padding,
+    margin,
+    borderRadius,
+    borderWidth,
+    borderStyle,
+    borderColor,
+    boxShadow,
+    zIndex,
+    alignSelf,
+    flexGrow,
+    flexShrink,
+    order: flexOrder,
+    ...bg,
+  }
+
+  // Drop undefined to avoid emitting empty declarations
+  const hasAny = Object.values(baseProps).some(v => v !== undefined && v !== '')
+  if (!hasAny && !settings._padding_tablet && !settings._padding_mobile
+    && !settings._margin_tablet && !settings._margin_mobile
+    && !settings._border_radius_tablet && !settings._border_radius_mobile
+    && !settings._border_width_tablet && !settings._border_width_mobile
+    && !settings._flex_align_self_tablet && !settings._flex_align_self_mobile
+    && !settings._flex_grow_tablet && !settings._flex_grow_mobile
+    && !settings._flex_shrink_tablet && !settings._flex_shrink_mobile
+    && !settings._z_index_tablet && !settings._z_index_mobile
+    && !settings.hide_desktop && !settings.hide_tablet && !settings.hide_mobile
+  ) {
+    return ''
+  }
+
+  cssRules.push({ selector: '', properties: baseProps })
+
+  // Hide-on-breakpoint
+  pushHideOnBreakpointRules(cssRules, settings)
+
+  // Tablet responsive overrides
+  const tabletProps: Record<string, string | undefined> = {
+    padding: parseSpacing(settings._padding_tablet),
+    margin: parseSpacing(settings._margin_tablet),
+    borderRadius: parseBorderRadius(settings._border_radius_tablet),
+    borderWidth: parseSpacing(settings._border_width_tablet) || parseDimension(settings._border_width_tablet),
+    alignSelf: settings._flex_align_self_tablet,
+    zIndex: settings._z_index_tablet !== undefined ? String(settings._z_index_tablet) : undefined,
+    flexGrow: settings._flex_grow_tablet !== undefined ? String(settings._flex_grow_tablet) : undefined,
+    flexShrink: settings._flex_shrink_tablet !== undefined ? String(settings._flex_shrink_tablet) : undefined,
+    order: settings._flex_order_tablet !== undefined ? String(settings._flex_order_tablet) : undefined,
+  }
+  if (Object.values(tabletProps).some(v => v !== undefined && v !== '')) {
+    cssRules.push({ selector: '@media (max-width: 1024px)', properties: tabletProps })
+  }
+
+  // Mobile responsive overrides
+  const mobileProps: Record<string, string | undefined> = {
+    padding: parseSpacing(settings._padding_mobile),
+    margin: parseSpacing(settings._margin_mobile),
+    borderRadius: parseBorderRadius(settings._border_radius_mobile),
+    borderWidth: parseSpacing(settings._border_width_mobile) || parseDimension(settings._border_width_mobile),
+    alignSelf: settings._flex_align_self_mobile,
+    zIndex: settings._z_index_mobile !== undefined ? String(settings._z_index_mobile) : undefined,
+    flexGrow: settings._flex_grow_mobile !== undefined ? String(settings._flex_grow_mobile) : undefined,
+    flexShrink: settings._flex_shrink_mobile !== undefined ? String(settings._flex_shrink_mobile) : undefined,
+    order: settings._flex_order_mobile !== undefined ? String(settings._flex_order_mobile) : undefined,
+  }
+  if (Object.values(mobileProps).some(v => v !== undefined && v !== '')) {
+    cssRules.push({ selector: '@media (max-width: 767px)', properties: mobileProps })
+  }
+
+  return generateCSS(id, cssRules)
+}
+
+/**
+ * Container outer-element padding handling.
+ *
+ * No-op: this function intentionally returns no `padding` declarations and
+ * defers entirely to the var-driven Elementor stock CSS. Elementor's own
+ * `container.php:1396` only sets `--padding-top/right/bottom/left` on the
+ * wrapper — it never sets the `padding` shorthand. The frontend stylesheet
+ * (`backendv2/public/cdn/css/elementor/frontend.min.css`) then routes the
+ * vars to the right element:
+ *
+ *   .e-con {
+ *     --padding-inline-start: var(--padding-left);     // LTR mapping
+ *     --padding-inline-end:   var(--padding-right);
+ *     padding-inline-start:   var(--padding-inline-start);
+ *     padding-inline-end:     var(--padding-inline-end);
+ *   }
+ *   .e-con-full, .e-con > .e-con-inner {
+ *     padding-block-start: var(--padding-block-start);
+ *     padding-block-end:   var(--padding-block-end);
+ *   }
+ *   .e-con > .e-con-inner { padding-inline-start: 0; padding-inline-end: 0; }
+ *
+ *   Result:
+ *     full-width outer → all 4 sides
+ *     boxed outer      → inline only (left/right)
+ *     boxed inner      → block only (top/bottom)
+ *
+ * Setting the `padding` shorthand on the outer (the previous behavior) caused
+ * the boxed case to apply vertical padding TWICE — once on the outer via
+ * shorthand, again on the inner via the stock rule. The fix is to skip the
+ * shorthand entirely and let the vars + stock CSS do the distribution, which
+ * is exactly what native Elementor does.
+ *
+ * The `--padding-*` vars are emitted separately via `spacingVariables(...)`
+ * — that's the single source of truth for both outer and inner padding.
+ *
+ * If you ever need a fallback that works without the stock CSS loaded, this
+ * is the place to add it; for now stock CSS is always present in preview
+ * (bundler.ts injects the Elementor CDN frontend.min.css unconditionally).
+ */
+function containerOuterPaddingProperties(
+  _value: unknown,
+  _isBoxed: boolean
+): Record<string, string | undefined> {
+  return {}
+}
+
 function hasAnyProperty(properties: Record<string, string | undefined>): boolean {
   return Object.values(properties).some(value => value !== undefined && value !== '')
 }
@@ -205,7 +380,6 @@ export function getContainerPreviewCSS(id: string, settings: PreviewSettings, co
   const backgroundHover = parseBackground(settings, 'background_hover')
   const border = parseBorder(settings, 'border')
   const borderHover = parseBorder(settings, 'border_hover')
-  const padding = parseSpacing(settings.padding)
   const margin = parseSpacing(settings.margin)
   const needsPosition = settings.background_overlay_background || settings.shape_divider_top || settings.shape_divider_bottom
 
@@ -215,7 +389,10 @@ export function getContainerPreviewCSS(id: string, settings: PreviewSettings, co
     width: parseDimension(settings.width),
     height: parseDimension(settings.height),
     minHeight: parseDimension(settings.min_height),
-    padding,
+    // align-self positions THIS container within its flex parent — must live
+    // on the outer .elementor-element, never on .e-con-inner.
+    alignSelf: settings._flex_align_self,
+    ...containerOuterPaddingProperties(settings.padding, isBoxed),
     margin,
     ...spacingVariables(settings.padding, 'padding'),
     ...spacingVariables(settings.margin, 'margin'),
@@ -322,13 +499,14 @@ export function getContainerPreviewCSS(id: string, settings: PreviewSettings, co
         },
       })
     }
-    if (settings.padding_tablet || settings.margin_tablet || settings.width_tablet || settings.min_height_tablet) {
+    if (settings.padding_tablet || settings.margin_tablet || settings.width_tablet || settings.min_height_tablet || settings._flex_align_self_tablet) {
       cssRules.push({
         selector: '@media (max-width: 1024px)',
         properties: {
           width: parseDimension(settings.width_tablet),
           minHeight: parseDimension(settings.min_height_tablet),
-          padding: parseSpacing(settings.padding_tablet),
+          alignSelf: settings._flex_align_self_tablet,
+          ...containerOuterPaddingProperties(settings.padding_tablet, isBoxed),
           margin: parseSpacing(settings.margin_tablet),
           ...spacingVariables(settings.padding_tablet, 'padding'),
           ...spacingVariables(settings.margin_tablet, 'margin'),
@@ -361,13 +539,14 @@ export function getContainerPreviewCSS(id: string, settings: PreviewSettings, co
         },
       })
     }
-    if (settings.padding_mobile || settings.margin_mobile || settings.width_mobile || settings.min_height_mobile) {
+    if (settings.padding_mobile || settings.margin_mobile || settings.width_mobile || settings.min_height_mobile || settings._flex_align_self_mobile) {
       cssRules.push({
         selector: '@media (max-width: 767px)',
         properties: {
           width: parseDimension(settings.width_mobile),
           minHeight: parseDimension(settings.min_height_mobile),
-          padding: parseSpacing(settings.padding_mobile),
+          alignSelf: settings._flex_align_self_mobile,
+          ...containerOuterPaddingProperties(settings.padding_mobile, isBoxed),
           margin: parseSpacing(settings.margin_mobile),
           ...spacingVariables(settings.padding_mobile, 'padding'),
           ...spacingVariables(settings.margin_mobile, 'margin'),
@@ -439,13 +618,14 @@ export function getContainerPreviewCSS(id: string, settings: PreviewSettings, co
         flexShrink: settings._flex_shrink_tablet !== undefined ? String(settings._flex_shrink_tablet) : undefined,
       },
     })
-    if (settings.padding_tablet || settings.margin_tablet || settings.width_tablet || settings.min_height_tablet) {
+    if (settings.padding_tablet || settings.margin_tablet || settings.width_tablet || settings.min_height_tablet || settings._flex_align_self_tablet) {
       cssRules.push({
         selector: '@media (max-width: 1024px)',
         properties: {
           width: parseDimension(settings.width_tablet),
           minHeight: parseDimension(settings.min_height_tablet),
-          padding: parseSpacing(settings.padding_tablet),
+          alignSelf: settings._flex_align_self_tablet,
+          ...containerOuterPaddingProperties(settings.padding_tablet, isBoxed),
           margin: parseSpacing(settings.margin_tablet),
           ...spacingVariables(settings.padding_tablet, 'padding'),
           ...spacingVariables(settings.margin_tablet, 'margin'),
@@ -479,13 +659,14 @@ export function getContainerPreviewCSS(id: string, settings: PreviewSettings, co
         flexShrink: settings._flex_shrink_mobile !== undefined ? String(settings._flex_shrink_mobile) : undefined,
       },
     })
-    if (settings.padding_mobile || settings.margin_mobile || settings.width_mobile || settings.min_height_mobile) {
+    if (settings.padding_mobile || settings.margin_mobile || settings.width_mobile || settings.min_height_mobile || settings._flex_align_self_mobile) {
       cssRules.push({
         selector: '@media (max-width: 767px)',
         properties: {
           width: parseDimension(settings.width_mobile),
           minHeight: parseDimension(settings.min_height_mobile),
-          padding: parseSpacing(settings.padding_mobile),
+          alignSelf: settings._flex_align_self_mobile,
+          ...containerOuterPaddingProperties(settings.padding_mobile, isBoxed),
           margin: parseSpacing(settings.margin_mobile),
           ...spacingVariables(settings.padding_mobile, 'padding'),
           ...spacingVariables(settings.margin_mobile, 'margin'),
@@ -500,22 +681,49 @@ export function getContainerPreviewCSS(id: string, settings: PreviewSettings, co
   }
 
   if (settings.background_overlay_background) {
-    cssRules.push({
-      selector: '::before',
-      properties: {
-        content: '""',
-        position: 'absolute',
-        top: '0',
-        left: '0',
-        right: '0',
-        bottom: '0',
-        pointerEvents: 'none',
-        opacity: settings.background_overlay_opacity?.size !== undefined ? String(settings.background_overlay_opacity.size) : undefined,
-        backgroundColor: settings.background_overlay_color,
-        mixBlendMode: settings.overlay_blend_mode,
-        zIndex: '0',
-      },
-    })
+    // Render a `::before` pseudo that covers the parent and paints the
+    // overlay (color OR gradient). For gradients we emit `background-image:
+    // linear-gradient(...)` so the original colorA→colorB transition is
+    // preserved.
+    //
+    // Opacity comes from the explicit `backgroundOverlayOpacity` prop
+    // (validator enforces it is set whenever `backgroundOverlay` is set).
+    // We do NOT default to 0.5 here — that would silently change the
+    // effective overlay intensity vs what the AI wrote. If the value is
+    // missing, fall back to 1 (use the color's own alpha verbatim) so the
+    // visible result still matches the literal `backgroundOverlay` color.
+    const explicitOverlayOpacity = settings.background_overlay_opacity?.size
+    const overlayOpacity = explicitOverlayOpacity !== undefined ? String(explicitOverlayOpacity) : '1'
+    const overlayProps: Record<string, string | undefined> = {
+      content: '""',
+      position: 'absolute',
+      top: '0',
+      left: '0',
+      right: '0',
+      bottom: '0',
+      pointerEvents: 'none',
+      opacity: overlayOpacity,
+      mixBlendMode: settings.overlay_blend_mode,
+      zIndex: '0',
+    }
+    if (settings.background_overlay_background === 'gradient') {
+      const colorA = settings.background_overlay_color
+      const colorB = settings.background_overlay_color_b
+      const stopA = settings.background_overlay_color_stop?.size
+      const stopB = settings.background_overlay_color_b_stop?.size
+      const stopAStr = stopA !== undefined ? `${stopA}%` : '0%'
+      const stopBStr = stopB !== undefined ? `${stopB}%` : '100%'
+      if (settings.background_overlay_gradient_type === 'radial') {
+        const pos = settings.background_overlay_gradient_position || 'center center'
+        overlayProps.backgroundImage = `radial-gradient(at ${pos}, ${colorA} ${stopAStr}, ${colorB} ${stopBStr})`
+      } else {
+        const angle = settings.background_overlay_gradient_angle?.size ?? 180
+        overlayProps.backgroundImage = `linear-gradient(${angle}deg, ${colorA} ${stopAStr}, ${colorB} ${stopBStr})`
+      }
+    } else {
+      overlayProps.backgroundColor = settings.background_overlay_color as string | undefined
+    }
+    cssRules.push({ selector: '::before', properties: overlayProps })
   }
 
   if (settings.shape_divider_top) {
@@ -550,6 +758,9 @@ export function getContainerPreviewCSS(id: string, settings: PreviewSettings, co
   }
 
   addLayoutPositionRules(cssRules, settings, 'container')
+
+  // hide-on-breakpoint (works for containers via the same `advanced.hideOn*` props)
+  pushHideOnBreakpointRules(cssRules, settings)
 
   return generateCSS(id, cssRules)
 }
@@ -2222,6 +2433,19 @@ export function getElementorFormCSS(id: string, settings: PreviewSettings): stri
   const rowGap = parseDimension(settings.row_gap) || '0px'
   const cssRules: CSSRule[] = [
     {
+      // Form widget fills its parent container width by default. Without
+      // this rule the form's natural width is computed from the children
+      // (input + button) and depends on browser font metrics, producing a
+      // different width in the React preview than in the Elementor PHP
+      // render — the inline "email + Subscribe" newsletter form ended up
+      // ~130px narrower in PHP, making the col-70 input + col-30 button
+      // visibly cramped while React rendered them spaced correctly.
+      // Mirror the export side via the `_element_width: 'inherit'` setting
+      // emitted by the form mapper so both sides agree on full-parent width.
+      selector: '',
+      properties: { width: '100%' },
+    },
+    {
       selector: '.elementor-form-fields-wrapper',
       properties: {
         display: 'flex',
@@ -2396,6 +2620,217 @@ export function getSlidesCSS(id: string, settings: PreviewSettings): string {
     addResponsiveRule(cssRules, query, responsiveTypographyForPrefix(settings, 'heading_typography', suffix), ' .elementor-slide-heading')
     addResponsiveRule(cssRules, query, responsiveTypographyForPrefix(settings, 'description_typography', suffix), ' .elementor-slide-description')
   }
+  addLayoutPositionRules(cssRules, settings, 'widget')
+  return generateCSS(id, cssRules)
+}
+
+export function getTestimonialCarouselCSS(id: string, settings: PreviewSettings): string {
+  const contentTypography = parseTypography(settings, 'content_typography')
+  const nameTypography = parseTypography(settings, 'name_typography')
+  const titleTypography = parseTypography(settings, 'title_typography')
+  const layout = settings.layout || 'image_inline'
+  const isBubble = settings.skin === 'bubble'
+  const alignment = settings.alignment || 'center'
+
+  // Flex direction for the card content based on Elementor layout option.
+  // image_above: image on top, then text below (column)
+  // image_stacked: same as above but text wrapped differently — column
+  // image_inline: image and cite (name+title) inline horizontally; content above them
+  // image_left / image_right: image beside the rest (row / row-reverse)
+  const isHorizontalLayout = layout === 'image_left' || layout === 'image_right'
+
+  const cssRules: CSSRule[] = [
+    {
+      selector: '.elementor-main-swiper',
+      properties: { overflow: 'hidden', width: parseDimension(settings.width) || '100%' },
+    },
+    {
+      selector: '.swiper-wrapper',
+      properties: { display: 'flex', gap: parseDimension(settings.space_between) || '10px' },
+    },
+    {
+      selector: '.swiper-slide',
+      properties: { display: 'flex', flexDirection: 'column', flexShrink: '0' },
+    },
+    {
+      selector: '.elementor-testimonial',
+      properties: {
+        display: 'flex',
+        flexDirection: isHorizontalLayout ? (layout === 'image_right' ? 'row-reverse' : 'row') : 'column',
+        gap: parseDimension(settings.image_gap) || '12px',
+        textAlign: alignment as React.CSSProperties['textAlign'],
+        alignItems: alignment === 'center' ? 'center' : alignment === 'right' ? 'flex-end' : 'flex-start',
+      },
+    },
+    {
+      selector: '.elementor-testimonial__content',
+      properties: {
+        position: isBubble ? 'relative' : undefined,
+        display: 'flex',
+        flexDirection: 'column',
+        gap: parseDimension(settings.content_gap) || '12px',
+        backgroundColor: isBubble ? settings.background_color : undefined,
+        padding: isBubble ? parseSpacing(settings.text_padding) : undefined,
+        borderRadius: isBubble ? parseSpacing(settings.border_radius) : undefined,
+        border: isBubble && settings.border === 'yes' ? `${parseDimension(settings.border_width) || '1px'} solid ${settings.border_color || '#000'}` : undefined,
+        flex: isHorizontalLayout ? '1 1 0' : undefined,
+      },
+    },
+    {
+      selector: '.elementor-testimonial__text',
+      properties: {
+        color: settings.content_color || '#0e100f',
+        fontFamily: contentTypography.fontFamily,
+        fontSize: contentTypography.fontSize || '16px',
+        fontWeight: contentTypography.fontWeight,
+        lineHeight: contentTypography.lineHeight || '1.5',
+        margin: '0',
+      },
+    },
+    {
+      selector: '.elementor-testimonial__footer',
+      properties: {
+        display: 'flex',
+        alignItems: 'center',
+        gap: parseDimension(settings.image_gap) || '12px',
+        flexDirection: layout === 'image_stacked' ? 'column' : 'row',
+      },
+    },
+    {
+      selector: '.elementor-testimonial__image',
+      properties: { display: 'inline-flex', flexShrink: '0' },
+    },
+    {
+      selector: '.elementor-testimonial__image img',
+      properties: {
+        width: parseDimension(settings.image_size) || '54px',
+        height: parseDimension(settings.image_size) || '54px',
+        objectFit: 'cover',
+        display: 'block',
+        borderRadius: parseDimension(settings.image_border_radius),
+        border: settings.image_border === 'yes'
+          ? `${parseDimension(settings.image_border_width) || '1px'} solid ${settings.image_border_color || '#000'}`
+          : undefined,
+      },
+    },
+    {
+      selector: '.elementor-testimonial__cite',
+      properties: { display: 'flex', flexDirection: 'column', gap: '4px', fontStyle: 'normal' },
+    },
+    {
+      selector: '.elementor-testimonial__name',
+      properties: {
+        color: settings.name_color || '#0e100f',
+        fontFamily: nameTypography.fontFamily,
+        fontSize: nameTypography.fontSize || '20px',
+        fontWeight: nameTypography.fontWeight || '500',
+        lineHeight: nameTypography.lineHeight,
+      },
+    },
+    {
+      selector: '.elementor-testimonial__title',
+      properties: {
+        color: settings.title_color || '#71716f',
+        fontFamily: titleTypography.fontFamily,
+        fontSize: titleTypography.fontSize || '14px',
+        fontWeight: titleTypography.fontWeight,
+        lineHeight: titleTypography.lineHeight,
+      },
+    },
+  ]
+
+  if (isBubble) {
+    // Bubble skin: render a chat-tail triangle on .__content::after pointing toward
+    // the cite block (matches Elementor Pro's widget-testimonial-carousel.css).
+    // For image_inline/image_stacked the cite sits below the bubble → tail points down.
+    // For image_above the cite is above content → tail points up.
+    // For image_left/image_right the cite sits beside content → tail points toward it.
+    const bg = String(settings.background_color || '#fff')
+    const tailDirection: 'down' | 'up' | 'left' | 'right' =
+      layout === 'image_above' ? 'up'
+      : layout === 'image_left' ? 'right'
+      : layout === 'image_right' ? 'left'
+      : 'down'
+    const tailSize = 8
+    const tailPosition = alignment === 'left' ? '20px'
+      : alignment === 'right' ? 'calc(100% - 28px)'
+      : '50%'
+
+    const tailProps: Record<string, string | undefined> = {
+      content: '""',
+      position: 'absolute',
+      width: '0',
+      height: '0',
+      borderStyle: 'solid',
+    }
+    if (tailDirection === 'down') {
+      tailProps.top = '100%'
+      tailProps.left = tailPosition
+      tailProps.transform = 'translateX(-50%)'
+      tailProps.borderWidth = `${tailSize}px ${tailSize}px 0 ${tailSize}px`
+      tailProps.borderColor = `${bg} transparent transparent transparent`
+    } else if (tailDirection === 'up') {
+      tailProps.bottom = '100%'
+      tailProps.left = tailPosition
+      tailProps.transform = 'translateX(-50%)'
+      tailProps.borderWidth = `0 ${tailSize}px ${tailSize}px ${tailSize}px`
+      tailProps.borderColor = `transparent transparent ${bg} transparent`
+    } else if (tailDirection === 'right') {
+      tailProps.left = '100%'
+      tailProps.top = '50%'
+      tailProps.transform = 'translateY(-50%)'
+      tailProps.borderWidth = `${tailSize}px 0 ${tailSize}px ${tailSize}px`
+      tailProps.borderColor = `transparent transparent transparent ${bg}`
+    } else {
+      tailProps.right = '100%'
+      tailProps.top = '50%'
+      tailProps.transform = 'translateY(-50%)'
+      tailProps.borderWidth = `${tailSize}px ${tailSize}px ${tailSize}px 0`
+      tailProps.borderColor = `transparent ${bg} transparent transparent`
+    }
+
+    cssRules.push({
+      selector: '.elementor-testimonial__content:after',
+      properties: tailProps,
+    })
+
+    // Gap between bubble and cite block (the tail extends 8px past the bubble).
+    if (tailDirection === 'down') {
+      cssRules.push({
+        selector: '.elementor-testimonial__footer',
+        properties: { marginTop: `${tailSize}px` },
+      })
+    } else if (tailDirection === 'right' || tailDirection === 'left') {
+      cssRules.push({
+        selector: '.elementor-testimonial__footer',
+        properties: { [tailDirection === 'right' ? 'marginLeft' : 'marginRight']: `${tailSize}px` },
+      })
+    }
+  }
+
+  for (const { suffix, query } of RESPONSIVE_MEDIA) {
+    addResponsiveRule(cssRules, query, { width: parseDimension(settings[`width${suffix}`]) }, ' .elementor-main-swiper')
+    addResponsiveRule(cssRules, query, { gap: parseDimension(settings[`space_between${suffix}`]) }, ' .swiper-wrapper')
+    addResponsiveRule(cssRules, query, {
+      gap: parseDimension(settings[`image_gap${suffix}`]),
+      textAlign: settings[`alignment${suffix}`],
+      alignItems: settings[`alignment${suffix}`] === 'center' ? 'center' : settings[`alignment${suffix}`] === 'right' ? 'flex-end' : settings[`alignment${suffix}`] === 'left' ? 'flex-start' : undefined,
+    }, ' .elementor-testimonial')
+    addResponsiveRule(cssRules, query, {
+      gap: parseDimension(settings[`content_gap${suffix}`]),
+      padding: isBubble ? parseSpacing(settings[`text_padding${suffix}`]) : undefined,
+      borderRadius: isBubble ? parseSpacing(settings[`border_radius${suffix}`]) : undefined,
+    }, ' .elementor-testimonial__content')
+    addResponsiveRule(cssRules, query, responsiveTypographyForPrefix(settings, 'content_typography', suffix), ' .elementor-testimonial__text')
+    addResponsiveRule(cssRules, query, {
+      width: parseDimension(settings[`image_size${suffix}`]),
+      height: parseDimension(settings[`image_size${suffix}`]),
+      borderRadius: parseDimension(settings[`image_border_radius${suffix}`]),
+    }, ' .elementor-testimonial__image img')
+    addResponsiveRule(cssRules, query, responsiveTypographyForPrefix(settings, 'name_typography', suffix), ' .elementor-testimonial__name')
+    addResponsiveRule(cssRules, query, responsiveTypographyForPrefix(settings, 'title_typography', suffix), ' .elementor-testimonial__title')
+  }
+
   addLayoutPositionRules(cssRules, settings, 'widget')
   return generateCSS(id, cssRules)
 }

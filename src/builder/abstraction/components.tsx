@@ -7,12 +7,14 @@ import type { ElementorElement, ElementorDocument } from '../../types';
 import { generateElementId } from '../../lib/id-generator';
 import { useIsPreviewMode } from '../../lib/render-mode';
 import { CSSProvider, StyleTag } from '../../lib/css-context';
+import { useInspectorRegistry } from '../../lib/inspector-registry';
 
 import { DocumentContext, ElementContext, useDocument, useElementContext } from './context';
 import { mapGridProps, mapFlexboxProps, mapWidgetProps } from './mappers';
 import { getDomAttributes, normalizeLink } from './utils';
 import {
   asPreviewSettings,
+  getAdvancedCSS,
   getContainerPreviewCSS,
   getHeadingCSS,
   getTextEditorCSS,
@@ -32,6 +34,7 @@ import {
   getNavMenuCSS,
   getElementorFormCSS,
   getSlidesCSS,
+  getTestimonialCarouselCSS,
   getImageCSS,
   layoutPositionClass,
   widgetDataSettings,
@@ -59,7 +62,11 @@ import type {
   NavMenuItem,
   ElementorFormProps,
   SlidesProps,
+  TestimonialCarouselProps,
   ImageProps,
+  NavbarProps,
+  NavbarFallbackLink,
+  HtmlEmbedProps,
 } from './types';
 
 // =============================================================================
@@ -150,6 +157,7 @@ export const Grid: React.FC<GridProps> = (props) => {
 
   if (isPreview) {
     const settings = asPreviewSettings(mapGridProps(props as Record<string, unknown>))
+    useInspectorRegistry(id, 'Container', 'grid', props as Record<string, unknown>, settings)
     const css = getContainerPreviewCSS(id, settings, 'grid')
     const isNested = parent !== null
     const isBoxed = settings.content_width === 'boxed'
@@ -180,7 +188,8 @@ export const Grid: React.FC<GridProps> = (props) => {
           data-id={id}
           data-element_type="container"
           data-e-type="container"
-          data-up-component="Grid"
+          data-up-component="Container"
+          data-up-container-layout="grid"
           {...linkProps}
         >
           {renderShapeDivider(settings, 'top')}
@@ -216,13 +225,19 @@ export const Grid: React.FC<GridProps> = (props) => {
 
 export const Flexbox: React.FC<FlexboxProps> = (rawProps) => {
   const { __upComponentName, ...props } = rawProps as InternalFlexboxProps
-  const componentName = __upComponentName || 'Flexbox'
+  // Section-name (top-level page region label) is delivered via __upComponentName
+  // when this Flexbox was authored as <Section name="...">. Render it as a
+  // separate `data-up-container-name` attribute so the layers panel can show
+  // "HeroSection" while `data-up-component` stays canonical at "Container".
+  const sectionName = __upComponentName && __upComponentName !== 'Flexbox' ? __upComponentName : null
+  const containerLayout = (props as Record<string, unknown>).direction === 'column' ? 'column' : 'row'
   const isPreview = useIsPreviewMode()
   const id = useMemo(() => props.id || generateElementId(), [props.id])
   const parent = useElementContext()
 
   if (isPreview) {
     const settings = asPreviewSettings(mapFlexboxProps(props as Record<string, unknown>))
+    useInspectorRegistry(id, 'Container', 'flexbox', props as Record<string, unknown>, settings)
     const css = getContainerPreviewCSS(id, settings, 'flex')
     const isNested = parent !== null
     const isBoxed = settings.content_width === 'boxed'
@@ -253,7 +268,9 @@ export const Flexbox: React.FC<FlexboxProps> = (rawProps) => {
           data-id={id}
           data-element_type="container"
           data-e-type="container"
-          data-up-component={componentName}
+          data-up-component="Container"
+          data-up-container-layout={containerLayout}
+          {...(sectionName ? { 'data-up-container-name': sectionName } : {})}
           {...linkProps}
         >
           {renderShapeDivider(settings, 'top')}
@@ -296,6 +313,162 @@ export const Section: React.FC<SectionProps> = ({ name, ...props }) => (
 ;(Section as any).__elementorAbstraction = { kind: 'container', name: 'Section', widgetKey: 'container', containerType: 'flex' }
 
 // =============================================================================
+// UNIFIED CONTAINER
+// =============================================================================
+//
+// `<Container>` is the modern, unified replacement for `<Grid>`, `<Flexbox>`,
+// and `<Section>`. It exists to eliminate the AI's "pick the right primitive"
+// decision — there is now one component, with `layout` driving the behavior.
+//
+// Behavior:
+//   layout="grid"   → delegates to Grid; `cols`/`rows` define the tracks
+//   layout="row"    → delegates to Flexbox with direction="row"
+//   layout="column" → delegates to Flexbox with direction="column" (default)
+//
+// Enum normalization: Container accepts `alignItems` / `justifyContent` /
+// `alignSelf` values WITHOUT the `flex-` prefix (`start`/`end`/`center`/
+// `stretch`/`space-between`/...). The translation to flex-prefixed forms for
+// flex layouts and to the bare forms for grid layouts happens here.
+//
+// Section semantics: when `name` is provided the component is treated as a
+// page-level section (sets the layers panel name), exactly like `<Section>`.
+
+const stripFlexPrefix = (v: unknown) => {
+  if (typeof v !== 'string') return v
+  return v === 'flex-start' ? 'start' : v === 'flex-end' ? 'end' : v
+}
+const addFlexPrefix = (v: unknown) => {
+  if (typeof v !== 'string') return v
+  return v === 'start' ? 'flex-start' : v === 'end' ? 'flex-end' : v
+}
+const mapResponsive = (v: unknown, mapper: (x: unknown) => unknown): unknown => {
+  if (v === undefined || v === null) return v
+  if (typeof v === 'object' && !Array.isArray(v) && ('desktop' in v || 'tablet' in v || 'mobile' in v)) {
+    const out: Record<string, unknown> = {}
+    for (const [bp, val] of Object.entries(v as Record<string, unknown>)) out[bp] = mapper(val)
+    return out
+  }
+  return mapper(v)
+}
+
+export type ContainerLayout = 'row' | 'column' | 'grid'
+
+export type ContainerProps = {
+  /**
+   * Layout primitive driving this container. Default `'column'` — the most
+   * common choice. Use `'grid'` only for genuine 2D layouts (multiple rows
+   * AND columns of equivalent cells); use `'row'` for inline horizontal
+   * groupings; use `'column'` for vertical stacks (the default).
+   */
+  layout?: ContainerLayout
+  /** Identifies this as a top-level page section in the layers panel. */
+  name?: string
+  /** Grid column tracks (only when `layout="grid"`). Alias of Grid's `columns`. */
+  cols?: GridProps['columns']
+  /** Backwards-compat alias for `cols`; same semantics. */
+  columns?: GridProps['columns']
+  /** Grid row tracks (only when `layout="grid"`). */
+  rows?: GridProps['rows']
+  /** Auto-flow direction (only when `layout="grid"`). */
+  autoFlow?: GridProps['autoFlow']
+  /** Wrap behavior (only when `layout="row"` or `"column"`). */
+  wrap?: FlexboxProps['wrap']
+  /**
+   * Cross-axis alignment of children. Accepts unprefixed values
+   * (`start | center | end | stretch | baseline`). The prefix is added
+   * automatically for flex layouts.
+   */
+  alignItems?: ResponsiveValue<'start' | 'center' | 'end' | 'stretch' | 'baseline'>
+  /**
+   * Main-axis alignment of children. Accepts unprefixed values
+   * (`start | center | end | space-between | space-around | space-evenly`).
+   */
+  justifyContent?: ResponsiveValue<'start' | 'center' | 'end' | 'space-between' | 'space-around' | 'space-evenly'>
+  /** Self-alignment of THIS container against its flex parent's cross axis. */
+  alignSelf?: ResponsiveValue<'start' | 'center' | 'end' | 'stretch' | 'baseline' | 'auto' | 'normal'>
+  // Common props passed through (see GridProps / FlexboxProps for the full list)
+  gap?: FlexboxProps['gap']
+  rowGap?: GridProps['rowGap']
+  columnGap?: GridProps['columnGap']
+  padding?: FlexboxProps['padding']
+  margin?: FlexboxProps['margin']
+  width?: FlexboxProps['width']
+  minHeight?: FlexboxProps['minHeight']
+  contentWidth?: FlexboxProps['contentWidth']
+  boxedWidth?: FlexboxProps['boxedWidth']
+  backgroundColor?: string
+  backgroundGradient?: FlexboxProps['backgroundGradient']
+  backgroundImage?: FlexboxProps['backgroundImage']
+  backgroundOverlay?: FlexboxProps['backgroundOverlay']
+  borderRadius?: FlexboxProps['borderRadius']
+  borderType?: FlexboxProps['borderType']
+  borderWidth?: FlexboxProps['borderWidth']
+  borderColor?: string
+  boxShadow?: FlexboxProps['boxShadow']
+  flexGrow?: FlexboxProps['flexGrow']
+  flexShrink?: FlexboxProps['flexShrink']
+  overflow?: FlexboxProps['overflow']
+  // Pass-through for everything else (data-html-id, advanced, positioning, etc.)
+  [key: string]: unknown
+  children?: ReactNode
+}
+
+// Local helper type so we don't need to re-import from types.ts in this scope
+type ResponsiveValue<T> = T | { desktop?: T; tablet?: T; mobile?: T }
+
+export const Container: React.FC<ContainerProps> = (props) => {
+  const {
+    layout: explicitLayout,
+    direction,
+    name,
+    cols,
+    columns,
+    rows,
+    autoFlow,
+    wrap,
+    alignItems,
+    justifyContent,
+    alignSelf,
+    ...rest
+  } = props as ContainerProps & { direction?: ContainerLayout }
+
+  // Resolve `layout`: explicit `layout` wins; fall back to `direction`
+  // (legacy alias) and finally to 'column' (the most common default).
+  const layout: ContainerLayout = explicitLayout ?? (direction as ContainerLayout) ?? 'column'
+
+  if (layout === 'grid') {
+    // For grid: use bare align values (Grid expects 'start' / 'end' natively)
+    const gridProps = {
+      ...rest,
+      columns: cols ?? columns,
+      rows,
+      autoFlow,
+      ...(alignItems !== undefined ? { alignItems: mapResponsive(alignItems, stripFlexPrefix) } : {}),
+      ...(justifyContent !== undefined ? { justifyContent: mapResponsive(justifyContent, stripFlexPrefix) } : {}),
+      // Grid does not support alignSelf natively; if provided, fall through via __advanced (no-op for now).
+    } as unknown as GridProps
+    return name
+      ? React.createElement(Section as React.FC<SectionProps>, { name, ...(gridProps as Record<string, unknown>), children: (rest as { children?: ReactNode }).children } as SectionProps)
+      : React.createElement(Grid, gridProps)
+  }
+
+  // For flex (row/column): translate bare align values back to flex-prefixed
+  const flexProps = {
+    ...rest,
+    direction: layout,
+    wrap,
+    ...(alignItems !== undefined ? { alignItems: mapResponsive(alignItems, addFlexPrefix) } : {}),
+    ...(justifyContent !== undefined ? { justify: mapResponsive(justifyContent, addFlexPrefix) } : {}),
+    ...(alignSelf !== undefined ? { alignSelf: mapResponsive(alignSelf, addFlexPrefix) } : {}),
+  } as unknown as FlexboxProps
+
+  return name
+    ? React.createElement(Section as React.FC<SectionProps>, { name, ...(flexProps as Record<string, unknown>) } as SectionProps)
+    : React.createElement(Flexbox, flexProps)
+}
+;(Container as any).__elementorAbstraction = { kind: 'container', name: 'Container', widgetKey: 'container' }
+
+// =============================================================================
 // WIDGET COMPONENTS
 // =============================================================================
 
@@ -305,8 +478,9 @@ export const Heading: React.FC<HeadingProps> = (props) => {
 
   if (isPreview) {
     const settings = asPreviewSettings(mapWidgetProps('heading', props as Record<string, unknown>))
+    useInspectorRegistry(id, 'Heading', 'heading', props as Record<string, unknown>, settings)
     const Tag = (settings.header_size || 'div') as keyof JSX.IntrinsicElements
-    const css = getHeadingCSS(id, settings)
+    const css = getHeadingCSS(id, settings) + getAdvancedCSS(id, settings)
 
     if (!settings.title) return null
 
@@ -384,7 +558,8 @@ export const TextEditor: React.FC<TextEditorProps> = (props) => {
 
   if (isPreview) {
     const settings = asPreviewSettings(mapWidgetProps('text-editor', props as Record<string, unknown>))
-    const css = getTextEditorCSS(id, settings)
+    useInspectorRegistry(id, 'TextEditor', 'text-editor', props as Record<string, unknown>, settings)
+    const css = getTextEditorCSS(id, settings) + getAdvancedCSS(id, settings)
 
     if (!settings.editor) return null
 
@@ -441,7 +616,8 @@ export const Button: React.FC<ButtonProps> = (props) => {
 
   if (isPreview) {
     const settings = asPreviewSettings(mapWidgetProps('button', props as Record<string, unknown>))
-    const css = getButtonCSS(id, settings)
+    useInspectorRegistry(id, 'Button', 'button', props as Record<string, unknown>, settings)
+    const css = getButtonCSS(id, settings) + getAdvancedCSS(id, settings)
 
     if (!settings.text && !settings.selected_icon?.value) return null
 
@@ -524,7 +700,8 @@ export const Icon: React.FC<IconProps> = (props) => {
 
   if (isPreview) {
     const settings = asPreviewSettings(mapWidgetProps('icon', props as Record<string, unknown>))
-    const css = getIconCSS(id, settings)
+    useInspectorRegistry(id, 'Icon', 'icon', props as Record<string, unknown>, settings)
+    const css = getIconCSS(id, settings) + getAdvancedCSS(id, settings)
 
     if (!settings.selected_icon?.value) return null
 
@@ -597,7 +774,8 @@ export const IconBox: React.FC<IconBoxProps> = (props) => {
 
   if (isPreview) {
     const settings = asPreviewSettings(mapWidgetProps('icon-box', props as Record<string, unknown>))
-    const css = getIconBoxCSS(id, settings)
+    useInspectorRegistry(id, 'IconBox', 'icon-box', props as Record<string, unknown>, settings)
+    const css = getIconBoxCSS(id, settings) + getAdvancedCSS(id, settings)
     const title = String(settings.title_text || '')
     const description = String(settings.description_text || '')
     const titleTag = settings.title_size || 'h3'
@@ -693,7 +871,8 @@ export const IconList: React.FC<IconListProps> = (props) => {
 
   if (isPreview) {
     const settings = asPreviewSettings(mapWidgetProps('icon-list', props as Record<string, unknown>))
-    const css = getIconListCSS(id, settings)
+    useInspectorRegistry(id, 'IconList', 'icon-list', props as Record<string, unknown>, settings)
+    const css = getIconListCSS(id, settings) + getAdvancedCSS(id, settings)
     const items = Array.isArray(settings.icon_list) ? settings.icon_list : []
 
     if (items.length === 0) return null
@@ -789,7 +968,8 @@ export const ImageBox: React.FC<ImageBoxProps> = (props) => {
 
   if (isPreview) {
     const settings = asPreviewSettings(mapWidgetProps('image-box', props as Record<string, unknown>))
-    const css = getImageBoxCSS(id, settings)
+    useInspectorRegistry(id, 'ImageBox', 'image-box', props as Record<string, unknown>, settings)
+    const css = getImageBoxCSS(id, settings) + getAdvancedCSS(id, settings)
     const image = settings.image || {}
     let src = image.url || ''
     const alt = image.alt || props.alt || ''
@@ -890,7 +1070,8 @@ export const Accordion: React.FC<AccordionProps> = (props) => {
   if (isPreview) {
     const useNativeRuntime = isElementorNativePreviewRuntime()
     const settings = asPreviewSettings(mapWidgetProps('accordion', props as Record<string, unknown>))
-    const css = getAccordionCSS(id, settings)
+    useInspectorRegistry(id, 'Accordion', 'accordion', props as Record<string, unknown>, settings)
+    const css = getAccordionCSS(id, settings) + getAdvancedCSS(id, settings)
     const items = Array.isArray(settings.tabs) ? settings.tabs : []
     const defaultActiveIndex = normalizeDefaultActiveIndex(props.defaultActiveIndex, items.length)
     const [activeIndex, setActiveIndex] = useState<number | null>(defaultActiveIndex)
@@ -1001,7 +1182,8 @@ export const Toggle: React.FC<ToggleProps> = (props) => {
   if (isPreview) {
     const useNativeRuntime = isElementorNativePreviewRuntime()
     const settings = asPreviewSettings(mapWidgetProps('toggle', props as Record<string, unknown>))
-    const css = getToggleCSS(id, settings)
+    useInspectorRegistry(id, 'Toggle', 'toggle', props as Record<string, unknown>, settings)
+    const css = getToggleCSS(id, settings) + getAdvancedCSS(id, settings)
     const items = Array.isArray(settings.tabs) ? settings.tabs : []
     const defaultActiveIndex = normalizeDefaultActiveIndex(props.defaultActiveIndex, items.length)
     const [openItems, setOpenItems] = useState<Set<number>>(() => defaultActiveIndex === null ? new Set() : new Set([defaultActiveIndex]))
@@ -1117,7 +1299,8 @@ export const Tabs: React.FC<TabsProps> = (props) => {
   if (isPreview) {
     const useNativeRuntime = isElementorNativePreviewRuntime()
     const settings = asPreviewSettings(mapWidgetProps('tabs', props as Record<string, unknown>))
-    const css = getTabsCSS(id, settings)
+    useInspectorRegistry(id, 'Tabs', 'tabs', props as Record<string, unknown>, settings)
+    const css = getTabsCSS(id, settings) + getAdvancedCSS(id, settings)
     const items = Array.isArray(settings.tabs) ? settings.tabs : []
     const defaultActiveIndex = normalizeDefaultActiveIndex(props.defaultActiveIndex, items.length)
     const [activeIndex, setActiveIndex] = useState(defaultActiveIndex ?? 0)
@@ -1246,7 +1429,8 @@ export const ImageGallery: React.FC<ImageGalleryProps> = (props) => {
 
   if (isPreview) {
     const settings = asPreviewSettings(mapWidgetProps('image-gallery', props as Record<string, unknown>))
-    const css = getImageGalleryCSS(id, settings)
+    useInspectorRegistry(id, 'ImageGallery', 'image-gallery', props as Record<string, unknown>, settings)
+    const css = getImageGalleryCSS(id, settings) + getAdvancedCSS(id, settings)
     const images = Array.isArray(settings.wp_gallery) ? settings.wp_gallery : []
 
     if (images.length === 0) return null
@@ -1329,7 +1513,8 @@ export const Counter: React.FC<CounterProps> = (props) => {
   if (isPreview) {
     const useNativeRuntime = isElementorNativePreviewRuntime()
     const settings = asPreviewSettings(mapWidgetProps('counter', props as Record<string, unknown>))
-    const css = getCounterCSS(id, settings)
+    useInspectorRegistry(id, 'Counter', 'counter', props as Record<string, unknown>, settings)
+    const css = getCounterCSS(id, settings) + getAdvancedCSS(id, settings)
     const fromValue = Number(settings.starting_number ?? 0)
     const toValue = Number(settings.ending_number ?? 100)
     const delimiter = settings.thousand_separator === 'yes' ? String(settings.thousand_separator_char || ',') : ''
@@ -1398,7 +1583,8 @@ export const Progress: React.FC<ProgressProps> = (props) => {
   if (isPreview) {
     const useNativeRuntime = isElementorNativePreviewRuntime()
     const settings = asPreviewSettings(mapWidgetProps('progress', props as Record<string, unknown>))
-    const css = getProgressCSS(id, settings)
+    useInspectorRegistry(id, 'Progress', 'progress', props as Record<string, unknown>, settings)
+    const css = getProgressCSS(id, settings) + getAdvancedCSS(id, settings)
     const percent = progressPercent(settings)
     const title = String(settings.title || '')
     const innerText = String(settings.inner_text || '')
@@ -1475,7 +1661,8 @@ export const ImageCarousel: React.FC<ImageCarouselProps> = (props) => {
 
   if (isPreview) {
     const settings = asPreviewSettings(mapWidgetProps('image-carousel', props as Record<string, unknown>))
-    const css = getImageCarouselCSS(id, settings)
+    useInspectorRegistry(id, 'ImageCarousel', 'image-carousel', props as Record<string, unknown>, settings)
+    const css = getImageCarouselCSS(id, settings) + getAdvancedCSS(id, settings)
     const images = Array.isArray(settings.carousel) ? settings.carousel : []
 
     if (images.length === 0) return null
@@ -1604,7 +1791,8 @@ export const NavMenu: React.FC<NavMenuProps> = (props) => {
 
   if (isPreview) {
     const settings = asPreviewSettings(mapWidgetProps('nav-menu', props as Record<string, unknown>))
-    const css = getNavMenuCSS(id, settings)
+    useInspectorRegistry(id, 'NavMenu', 'nav-menu', props as Record<string, unknown>, settings)
+    const css = getNavMenuCSS(id, settings) + getAdvancedCSS(id, settings)
     const items = props.items && props.items.length > 0
       ? props.items
       : [
@@ -1691,13 +1879,363 @@ export const NavMenu: React.FC<NavMenuProps> = (props) => {
 }
 ;(NavMenu as any).__elementorAbstraction = { kind: 'widget', name: 'NavMenu', widgetKey: 'nav-menu' }
 
+// ============================================================================
+// Navbar — composite navigation bar
+// ----------------------------------------------------------------------------
+// In preview mode, renders a complete navbar with state-driven hamburger toggle
+// so designers see realistic mobile behavior. The export pipeline (server-side
+// `lowerNavbarElements`) re-expands the same JSX into Section + Flexbox + Logo
+// + NavMenu (Pro) + CTA before the Elementor builder runs, so the native PHP
+// render gets NavMenu's built-in hamburger + dropdown (when Pro is on) or a
+// flat Button list (when Pro is off).
+// ============================================================================
+
+export const Navbar: React.FC<NavbarProps> = (props) => {
+  const isPreview = useIsPreviewMode()
+  const id = useMemo(() => props.id || generateElementId(), [props.id])
+
+  if (isPreview) {
+    const [open, setOpen] = useState(false)
+    const layout = props.layout ?? 'logo-left'
+    useInspectorRegistry(id, 'Navbar', 'navbar', props as Record<string, unknown>, props as Record<string, unknown>)
+    const innerGap = pickPxNumber(props.innerGap, 24)
+    const padding = '16px 32px'
+    const sticky = props.sticky === 'none' ? undefined : 'sticky'
+
+    const links: NavbarFallbackLink[] = props.fallbackLinks ?? []
+    const cta = props.cta
+
+    const menuColor = props.menuColor ?? '#111111'
+    const menuHoverColor = props.menuHoverColor ?? '#000000'
+    const menuFontSize = pickPxNumber(props.menuFontSize, 15)
+    const menuFontWeight = props.menuFontWeight ?? 500
+    const menuGap = pickPxNumber(props.menuGap, 28)
+
+    const ctaStyle = cta ? buildPreviewCtaStyle(cta) : null
+    const hamburgerColor = props.hamburgerColor ?? '#111111'
+    const hamburgerSize = pickPxNumber(props.hamburgerSize, 24)
+
+    const breakpoint = props.mobileBreakpoint ?? 'tablet'
+    // CSS class hooks for the show/hide rules below
+    const desktopOnlyClass = breakpoint === 'none' ? '' : 'up-navbar-desktop'
+    const mobileOnlyClass = breakpoint === 'none' ? '' : 'up-navbar-mobile'
+
+    const breakpointPx = breakpoint === 'mobile' ? 767 : breakpoint === 'tablet' ? 1024 : 0
+    const css =
+      breakpointPx > 0
+        ? `
+          .up-navbar-${id} .up-navbar-desktop { display: flex; align-items: center; gap: ${menuGap}px; }
+          .up-navbar-${id} .up-navbar-mobile-trigger { display: none; }
+          .up-navbar-${id} .up-navbar-mobile-panel { display: none; }
+          @media (max-width: ${breakpointPx}px) {
+            .up-navbar-${id} .up-navbar-desktop { display: none; }
+            .up-navbar-${id} .up-navbar-mobile-trigger { display: inline-flex; }
+            .up-navbar-${id} .up-navbar-mobile-panel.is-open { display: flex; }
+          }
+        `
+        : `.up-navbar-${id} .up-navbar-desktop { display: flex; align-items: center; gap: ${menuGap}px; }`
+
+    const justify =
+      layout === 'logo-center'
+        ? 'space-between'
+        : layout === 'split'
+        ? 'space-between'
+        : 'space-between'
+
+    const renderDesktopLinks = () =>
+      links.length > 0 ? (
+        <nav className={desktopOnlyClass} aria-label={props.menuName || 'Primary'}>
+          {links.map((l, i) => (
+            <a
+              key={`d_${i}`}
+              href={l.href}
+              style={{
+                color: menuColor,
+                fontSize: `${menuFontSize}px`,
+                fontWeight: menuFontWeight as any,
+                textDecoration: 'none',
+                transition: 'color 0.15s ease',
+              }}
+              onMouseEnter={(e) => ((e.currentTarget as HTMLAnchorElement).style.color = menuHoverColor)}
+              onMouseLeave={(e) => ((e.currentTarget as HTMLAnchorElement).style.color = menuColor)}
+            >
+              {l.text}
+            </a>
+          ))}
+        </nav>
+      ) : null
+
+    const renderMobilePanel = () =>
+      links.length > 0 ? (
+        <div
+          className={`up-navbar-mobile-panel ${open ? 'is-open' : ''} ${mobileOnlyClass}`}
+          style={{
+            position: 'absolute',
+            top: '100%',
+            left: 0,
+            right: 0,
+            background: props.dropdownBackground ?? '#ffffff',
+            padding: '16px 24px',
+            display: 'flex',
+            flexDirection: 'column',
+            gap: 12,
+            boxShadow: '0 4px 12px rgba(0,0,0,0.08)',
+          }}
+        >
+          {links.map((l, i) => (
+            <a
+              key={`m_${i}`}
+              href={l.href}
+              style={{
+                color: props.dropdownColor ?? menuColor,
+                fontSize: `${menuFontSize}px`,
+                fontWeight: menuFontWeight as any,
+                textDecoration: 'none',
+              }}
+              onClick={() => setOpen(false)}
+            >
+              {l.text}
+            </a>
+          ))}
+          {cta && (
+            <a
+              href={cta.href}
+              style={{ ...ctaStyle, alignSelf: 'flex-start', marginTop: 8 } as any}
+              onClick={() => setOpen(false)}
+            >
+              {cta.text}
+            </a>
+          )}
+        </div>
+      ) : null
+
+    return (
+      <>
+        <StyleTag elementId={id} css={css} />
+        <header
+          data-up-component="Navbar"
+          data-id={id}
+          className={`up-navbar-${id}`}
+          style={{
+            position: sticky as any,
+            top: sticky ? 0 : undefined,
+            zIndex: props.zIndex ?? 100,
+            background: props.backgroundColor ?? '#ffffff',
+            borderBottom:
+              props.borderBottomWidth
+                ? `${props.borderBottomWidth}px solid ${props.borderBottomColor ?? '#eaeaea'}`
+                : undefined,
+            padding,
+            width: '100%',
+          }}
+        >
+          <div
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: justify,
+              gap: innerGap,
+              maxWidth: 1280,
+              margin: '0 auto',
+              position: 'relative',
+            }}
+          >
+            {props.logo && props.logo.src && (
+              <a
+                href={props.logo.href ?? '/'}
+                style={{ display: 'flex', alignItems: 'center', flexShrink: 0 }}
+              >
+                <img
+                  src={props.logo.src}
+                  alt={props.logo.alt ?? 'Logo'}
+                  style={{
+                    width: props.logo.width != null ? toPxLengthStr(props.logo.width) : '120px',
+                    height: props.logo.height != null ? toPxLengthStr(props.logo.height) : 'auto',
+                    display: 'block',
+                  }}
+                />
+              </a>
+            )}
+
+            {renderDesktopLinks()}
+
+            {cta && (
+              <a
+                href={cta.href}
+                className={desktopOnlyClass}
+                style={ctaStyle as any}
+              >
+                {cta.text}
+              </a>
+            )}
+
+            <button
+              type="button"
+              aria-label="Menu toggle"
+              aria-expanded={open}
+              className={`up-navbar-mobile-trigger ${mobileOnlyClass}`}
+              onClick={() => setOpen((o) => !o)}
+              style={{
+                background: 'transparent',
+                border: 'none',
+                color: hamburgerColor,
+                fontSize: `${hamburgerSize}px`,
+                cursor: 'pointer',
+                padding: 8,
+                display: 'none',
+              }}
+            >
+              {open ? '✕' : '☰'}
+            </button>
+
+            {renderMobilePanel()}
+          </div>
+        </header>
+      </>
+    )
+  }
+
+  // JSON mode: register a placeholder. The backend lowering does the real
+  // expansion at export time. This branch is mainly here so DocumentBuilder
+  // doesn't crash when used in-process.
+  const doc = useDocument()
+  const parent = useElementContext()
+  const element: ElementorElement = {
+    id,
+    elType: 'container',
+    settings: {
+      content_width: 'full',
+      _element_id: id,
+    },
+    elements: [],
+  }
+
+  React.useEffect(() => {
+    doc.addElement(element, parent?.parentId)
+  }, [])
+
+  return null
+}
+;(Navbar as any).__elementorAbstraction = { kind: 'container', name: 'Navbar', containerType: 'flex' }
+
+function buildPreviewCtaStyle(cta: NonNullable<NavbarProps['cta']>): React.CSSProperties {
+  const variant = cta.variant ?? 'primary'
+  const base: React.CSSProperties = {
+    display: 'inline-block',
+    padding: '12px 24px',
+    borderRadius: cta.borderRadius != null ? toPxLengthStr(cta.borderRadius) : '8px',
+    fontSize: '15px',
+    fontWeight: 600,
+    textDecoration: 'none',
+    transition: 'background 0.15s ease, color 0.15s ease',
+  }
+  switch (variant) {
+    case 'primary':
+      return { ...base, background: cta.background ?? '#111111', color: cta.color ?? '#ffffff' }
+    case 'secondary':
+      return { ...base, background: cta.background ?? '#f3f4f6', color: cta.color ?? '#111111' }
+    case 'outline':
+      return {
+        ...base,
+        background: cta.background ?? 'transparent',
+        color: cta.color ?? '#111111',
+        border: `${cta.borderWidth ?? 1}px solid ${cta.borderColor ?? '#111111'}`,
+      }
+  }
+}
+
+function pickPxNumber(v: unknown, fallback: number): number {
+  if (typeof v === 'number') return v
+  if (typeof v === 'string') {
+    const n = parseFloat(v)
+    if (!Number.isNaN(n)) return n
+  }
+  if (v && typeof v === 'object' && 'desktop' in (v as any)) {
+    return pickPxNumber((v as any).desktop, fallback)
+  }
+  return fallback
+}
+
+function toPxLengthStr(v: unknown): string {
+  if (typeof v === 'number') return `${v}px`
+  if (typeof v === 'string') return v
+  if (v && typeof v === 'object' && 'size' in (v as any)) {
+    const size = (v as any).size
+    if (typeof size === 'number') return `${size}${(v as any).unit ?? 'px'}`
+  }
+  return '120px'
+}
+
+// ============================================================================
+// HtmlEmbed — escape hatch for raw HTML / inline SVG / iframes
+// ----------------------------------------------------------------------------
+// Compiles to Elementor's `html` widget (Widget_Html). Elementor's
+// PHP renderer is literally `print_unescaped_setting('html')` — the markup
+// flows straight through unchanged. Use for designs that have no Elementor
+// primitive: SVG with `<textPath>` (text wrapping a curve), custom shapes,
+// third-party iframes, raw script blocks. Preview uses
+// `dangerouslySetInnerHTML`.
+// ============================================================================
+
+export const HtmlEmbed: React.FC<HtmlEmbedProps> = (props) => {
+  const isPreview = useIsPreviewMode()
+  const id = useMemo(() => props.id || generateElementId(), [props.id])
+
+  if (isPreview) {
+    const settings = asPreviewSettings(mapWidgetProps('html', props as Record<string, unknown>))
+    useInspectorRegistry(id, 'HtmlEmbed', 'html', props as Record<string, unknown>, settings)
+    const css = getAdvancedCSS(id, settings)
+    const classes = [
+      'elementor-element',
+      `elementor-element-${id}`,
+      'elementor-widget',
+      'elementor-widget-html',
+      props.className,
+    ].filter(Boolean).join(' ')
+    const domProps = getDomAttributes(props as Record<string, unknown>)
+    return (
+      <>
+        {css ? <StyleTag elementId={id} css={css} /> : null}
+        <div
+          {...domProps}
+          className={classes}
+          data-id={id}
+          data-element_type="widget"
+          data-up-component="HtmlEmbed"
+          data-widget_type="html.default"
+          dangerouslySetInnerHTML={{ __html: props.html ?? '' }}
+        />
+      </>
+    )
+  }
+
+  const doc = useDocument()
+  const parent = useElementContext()
+  const settingsForExport = mapWidgetProps('html', props as Record<string, unknown>)
+  settingsForExport.html = props.html ?? ''
+  const element: ElementorElement = {
+    id,
+    elType: 'widget',
+    widgetType: 'html',
+    settings: settingsForExport,
+  }
+
+  React.useEffect(() => {
+    doc.addElement(element, parent?.parentId)
+  }, [])
+
+  return null
+}
+;(HtmlEmbed as any).__elementorAbstraction = { kind: 'widget', name: 'HtmlEmbed', widgetKey: 'html' }
+
 export const ElementorForm: React.FC<ElementorFormProps> = (props) => {
   const isPreview = useIsPreviewMode()
   const id = useMemo(() => props.id || generateElementId(), [props.id])
 
   if (isPreview) {
     const settings = asPreviewSettings(mapWidgetProps('form', props as Record<string, unknown>))
-    const css = getElementorFormCSS(id, settings)
+    useInspectorRegistry(id, 'ElementorForm', 'form', props as Record<string, unknown>, settings)
+    const css = getElementorFormCSS(id, settings) + getAdvancedCSS(id, settings)
     const fields = Array.isArray(settings.form_fields) ? settings.form_fields as Record<string, any>[] : []
     const validButtonAlign = (value: unknown) => {
       const align = String(value || '')
@@ -1813,14 +2351,41 @@ export const ElementorForm: React.FC<ElementorFormProps> = (props) => {
                   </div>
                 )
               })}
-              <div className="elementor-field-group elementor-column elementor-field-type-submit elementor-col-100 e-form__buttons">
-                <button className={`elementor-button elementor-size-${settings.button_size || 'sm'}`} type="submit">
-                  <span className="elementor-button-content-wrapper">
-                    {settings.selected_button_icon ? <span className="elementor-button-icon">{renderPreviewIcon(settings.selected_button_icon)}</span> : null}
-                    <span className="elementor-button-text">{String(settings.button_text || 'Send')}</span>
-                  </span>
-                </button>
-              </div>
+              {(() => {
+                // Mirror Elementor PHP rendering: the submit column class is
+                // `elementor-col-${button_width}` (default 100 when not set).
+                // CRUCIALLY, when `button_align === 'stretch'` Elementor PHP
+                // forces the column to col-100 — we replicate that here so
+                // React preview matches PHP. The validator catches
+                // contradictory combinations (`buttonWidth < 100` + desktop
+                // align "stretch") as `FORM_STRETCH_OVERRIDES_WIDTH`.
+                // `settings.button_width` arrives as a slider object
+                // (`{ size: 30, unit: 'px' }`) because the framework runs
+                // `normalizeSliderValue` over it during mapping. Extract
+                // `.size` first; `Number()` on the raw object would yield
+                // NaN and silently default to 100 (the original bug — the
+                // submit always rendered as col-100 even when the AI set
+                // buttonWidth="30").
+                const rawSetting = settings.button_width as unknown
+                let rawWidth: number = NaN
+                if (typeof rawSetting === 'number') rawWidth = rawSetting
+                else if (typeof rawSetting === 'string') rawWidth = Number(rawSetting)
+                else if (rawSetting && typeof rawSetting === 'object' && 'size' in (rawSetting as Record<string, unknown>)) {
+                  rawWidth = Number((rawSetting as { size: unknown }).size)
+                }
+                const widthFromAlign = settings.button_align === 'stretch' ? 100 : null
+                const buttonWidth = widthFromAlign ?? (Number.isFinite(rawWidth) && rawWidth > 0 ? Math.min(100, Math.max(1, Math.round(rawWidth))) : 100)
+                return (
+                  <div className={`elementor-field-group elementor-column elementor-field-type-submit elementor-col-${buttonWidth} e-form__buttons`}>
+                    <button className={`elementor-button elementor-size-${settings.button_size || 'sm'}`} type="submit">
+                      <span className="elementor-button-content-wrapper">
+                        {settings.selected_button_icon ? <span className="elementor-button-icon">{renderPreviewIcon(settings.selected_button_icon)}</span> : null}
+                        <span className="elementor-button-text">{String(settings.button_text || 'Send')}</span>
+                      </span>
+                    </button>
+                  </div>
+                )
+              })()}
             </div>
           </form>
         </div>
@@ -1847,7 +2412,8 @@ export const Slides: React.FC<SlidesProps> = (props) => {
 
   if (isPreview) {
     const settings = asPreviewSettings(mapWidgetProps('slides', props as Record<string, unknown>))
-    const css = getSlidesCSS(id, settings)
+    useInspectorRegistry(id, 'Slides', 'slides', props as Record<string, unknown>, settings)
+    const css = getSlidesCSS(id, settings) + getAdvancedCSS(id, settings)
     const slides = Array.isArray(settings.slides) ? settings.slides as Record<string, any>[] : []
     if (slides.length === 0) return null
     const navigation = settings.navigation || 'both'
@@ -1892,8 +2458,8 @@ export const Slides: React.FC<SlidesProps> = (props) => {
                 const content = (
                   <div className="swiper-slide-inner">
                     <div className="swiper-slide-contents">
-                      {slide.heading ? React.createElement(settings.slides_title_tag || 'div', { className: 'elementor-slide-heading' }, String(slide.heading)) : null}
-                      {slide.description ? React.createElement(settings.slides_description_tag || 'div', { className: 'elementor-slide-description' }, String(slide.description)) : null}
+                      {slide.heading ? React.createElement(settings.slides_title_tag || 'div', { className: 'elementor-slide-heading', dangerouslySetInnerHTML: { __html: String(slide.heading) } }) : null}
+                      {slide.description ? React.createElement(settings.slides_description_tag || 'div', { className: 'elementor-slide-description', dangerouslySetInnerHTML: { __html: String(slide.description) } }) : null}
                       {slide.button_text ? <a className={`elementor-button elementor-slide-button elementor-size-${settings.button_size || 'sm'}`} href={slide.link?.url || '#'}>{String(slide.button_text)}</a> : null}
                     </div>
                   </div>
@@ -1933,13 +2499,129 @@ export const Slides: React.FC<SlidesProps> = (props) => {
 }
 ;(Slides as any).__elementorAbstraction = { kind: 'widget', name: 'Slides', widgetKey: 'slides' }
 
+export const TestimonialCarousel: React.FC<TestimonialCarouselProps> = (props) => {
+  const isPreview = useIsPreviewMode()
+  const id = useMemo(() => props.id || generateElementId(), [props.id])
+
+  if (isPreview) {
+    const settings = asPreviewSettings(mapWidgetProps('testimonial-carousel', props as Record<string, unknown>))
+    useInspectorRegistry(id, 'TestimonialCarousel', 'testimonial-carousel', props as Record<string, unknown>, settings)
+    const css = getTestimonialCarouselCSS(id, settings) + getAdvancedCSS(id, settings)
+    const items = Array.isArray(settings.slides) ? settings.slides as Record<string, any>[] : []
+    if (items.length === 0) return null
+
+    const skin = settings.skin || 'default'
+    const layout = settings.layout || 'image_inline'
+    const alignment = settings.alignment || 'center'
+    const showArrows = items.length > 1 && (settings.show_arrows === 'yes' || settings.show_arrows === undefined)
+    const showDots = items.length > 1 && (settings.pagination === 'bullets' || settings.pagination === undefined)
+
+    const classes = [
+      'elementor-element',
+      `elementor-element-${id}`,
+      'elementor-widget',
+      'elementor-widget-testimonial-carousel',
+      `elementor-testimonial--skin-${skin}`,
+      `elementor-testimonial--layout-${layout}`,
+      `elementor-testimonial--align-${alignment}`,
+      layoutPositionClass(settings, 'widget'),
+      props.className,
+    ].filter(Boolean).join(' ')
+    const domProps = getDomAttributes(props as Record<string, unknown>)
+    const dataSettings = widgetDataSettings(settings, [
+      'show_arrows', 'pagination', 'autoplay', 'autoplay_speed', 'speed', 'loop',
+      'pause_on_hover', 'pause_on_interaction', 'slides_per_view', 'slides_to_scroll',
+      'space_between',
+    ])
+
+    return (
+      <>
+        <StyleTag elementId={id} css={css} />
+        <div
+          {...domProps}
+          className={classes}
+          data-id={id}
+          data-element_type="widget"
+          data-e-type="widget"
+          data-up-component="TestimonialCarousel"
+          data-widget_type="testimonial-carousel.default"
+          data-settings={dataSettings}
+        >
+          <div className="elementor-main-swiper swiper" role="region" aria-roledescription="carousel">
+            <div className="swiper-wrapper">
+              {items.map((item, index) => {
+                const imageUrl = resolvePreviewImageUrl(String(item.image?.url || ''))
+                const imageNode = imageUrl ? (
+                  <div className="elementor-testimonial__image">
+                    <img src={imageUrl} alt={String(item.name || `testimonial-${index}`)} />
+                  </div>
+                ) : null
+                const cite = (item.name || item.title) ? (
+                  <cite className="elementor-testimonial__cite">
+                    {item.name ? <span className="elementor-testimonial__name">{String(item.name)}</span> : null}
+                    {item.title ? <span className="elementor-testimonial__title">{String(item.title)}</span> : null}
+                  </cite>
+                ) : null
+                const content = item.content ? (
+                  <div className="elementor-testimonial__text" dangerouslySetInnerHTML={{ __html: String(item.content) }} />
+                ) : null
+
+                // PHP `print_cite()`: cite is "outside" (inside __content) for image_above|image_left|image_right.
+                // Cite is "inside" (inside __footer) for image_inline|image_stacked.
+                // skin=bubble forces image_inline behavior — cite always goes inside __footer.
+                const effectiveLayout = skin === 'bubble' ? 'image_inline' : layout
+                const citeInsideFooter = effectiveLayout === 'image_inline' || effectiveLayout === 'image_stacked'
+
+                return (
+                  <div className={`swiper-slide elementor-repeater-item-${item._id}`} key={String(item._id || index)}>
+                    <div className="elementor-testimonial">
+                      <div className="elementor-testimonial__content">
+                        {content}
+                        {citeInsideFooter ? null : cite}
+                      </div>
+                      <div className="elementor-testimonial__footer">
+                        {imageNode}
+                        {citeInsideFooter ? cite : null}
+                      </div>
+                    </div>
+                  </div>
+                )
+              })}
+            </div>
+            {showArrows ? (
+              <>
+                <div className="elementor-swiper-button elementor-swiper-button-prev" role="button" tabIndex={0}>{renderPreviewIcon({ value: 'eicon-chevron-left', library: 'eicons' })}</div>
+                <div className="elementor-swiper-button elementor-swiper-button-next" role="button" tabIndex={0}>{renderPreviewIcon({ value: 'eicon-chevron-right', library: 'eicons' })}</div>
+              </>
+            ) : null}
+            {showDots ? <div className="swiper-pagination" /> : null}
+          </div>
+        </div>
+      </>
+    )
+  }
+
+  const doc = useDocument()
+  const parent = useElementContext()
+  const settings = mapWidgetProps('testimonial-carousel', props as Record<string, unknown>)
+  const element: ElementorElement = { id, elType: 'widget', widgetType: 'testimonial-carousel', settings }
+
+  React.useEffect(() => {
+    doc.addElement(element, parent?.parentId)
+  }, [])
+
+  return null
+}
+;(TestimonialCarousel as any).__elementorAbstraction = { kind: 'widget', name: 'TestimonialCarousel', widgetKey: 'testimonial-carousel' }
+
 export const Image: React.FC<ImageProps> = (props) => {
   const isPreview = useIsPreviewMode()
   const id = useMemo(() => props.id || generateElementId(), [props.id])
 
   if (isPreview) {
     const settings = asPreviewSettings(mapWidgetProps('image', props as Record<string, unknown>))
-    const css = getImageCSS(id, settings)
+    useInspectorRegistry(id, 'Image', 'image', props as Record<string, unknown>, settings)
+    const css = getImageCSS(id, settings) + getAdvancedCSS(id, settings)
     const image = settings.image || {}
     let src = image.url || ''
     const alt = image.alt || props.alt || ''
