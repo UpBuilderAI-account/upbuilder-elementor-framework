@@ -286,6 +286,7 @@ export type SectionProps = FlexboxProps & {
 
 export type HeadingProps = BaseProps & {
   title?: string
+  as?: boolean
   tag?: 'h1' | 'h2' | 'h3' | 'h4' | 'h5' | 'h6' | 'p' | 'span' | 'div'
   size?: 'default' | 'small' | 'medium' | 'large' | 'xl' | 'xxl'
   align?: ResponsiveValue<'left' | 'center' | 'right' | 'justify'>
@@ -446,6 +447,7 @@ export type IconListProps = BaseProps & {
 }
 
 export type ImageProps = BaseProps & {
+  src?: boolean
   image?: ImageLike
   image_size?: 'full' | 'large' | 'medium' | 'thumbnail'
   alt?: string
