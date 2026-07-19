@@ -86,6 +86,10 @@ type InternalFlexboxProps = FlexboxProps & {
   __upComponentName?: string
 }
 
+type InternalGridProps = GridProps & {
+  __upComponentName?: string
+}
+
 type PreviewSettings = Record<string, any>
 
 // =============================================================================
@@ -150,7 +154,9 @@ Page.__elementorAbstraction = { kind: 'page', name: 'Page' }
 // CONTAINER COMPONENTS
 // =============================================================================
 
-export const Grid: React.FC<GridProps> = (props) => {
+export const Grid: React.FC<GridProps> = (rawProps) => {
+  const { __upComponentName, ...props } = rawProps as InternalGridProps
+  const sectionName = __upComponentName && __upComponentName !== 'Grid' ? __upComponentName : null
   const isPreview = useIsPreviewMode()
   const id = useMemo(() => props.id || generateElementId(), [props.id])
   const parent = useElementContext()
@@ -190,6 +196,7 @@ export const Grid: React.FC<GridProps> = (props) => {
           data-e-type="container"
           data-up-component="Container"
           data-up-container-layout="grid"
+          {...(sectionName ? { 'data-up-container-name': sectionName } : {})}
           {...linkProps}
         >
           {renderShapeDivider(settings, 'top')}
@@ -441,15 +448,18 @@ export const Container: React.FC<ContainerProps> = (props) => {
     const gridProps = {
       ...rest,
       columns: cols ?? columns,
-      rows,
+      // Container exposes rows as optional because it also represents flex
+      // layouts. A grid without explicit rows is the common single-row case.
+      rows: rows ?? 1,
       autoFlow,
       ...(alignItems !== undefined ? { alignItems: mapResponsive(alignItems, stripFlexPrefix) } : {}),
       ...(justifyContent !== undefined ? { justifyContent: mapResponsive(justifyContent, stripFlexPrefix) } : {}),
       // Grid does not support alignSelf natively; if provided, fall through via __advanced (no-op for now).
     } as unknown as GridProps
-    return name
-      ? React.createElement(Section as React.FC<SectionProps>, { name, ...(gridProps as Record<string, unknown>), children: (rest as { children?: ReactNode }).children } as SectionProps)
-      : React.createElement(Grid, gridProps)
+    return React.createElement(Grid as React.FC<InternalGridProps>, {
+      ...gridProps,
+      ...(name ? { __upComponentName: name } : {}),
+    })
   }
 
   // For flex (row/column): translate bare align values back to flex-prefixed
